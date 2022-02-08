@@ -12,6 +12,122 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from util import masked_softmax
 
 
+class CustomEmbedding(nn.Module):
+    """Embedding layer used by DCR
+
+    Concatenates the embedding of the word with
+    some meta-information about the word.
+    POS, NER, IsInQuestion, IsLemmaInQuestion, IsCapitalized
+    """
+    def __init__(self, word_vectors, hidden_size, drop_prob=0.):
+        super(CustomEmbedding, self).__init__()
+        # self.drop_prob = drop_prob
+        # self.embed = nn.Embedding.from_pretrained(word_vectors)
+        # self.proj = nn.Linear(word_vectors.size(1), hidden_size, bias=False)
+
+    def forward(self, x):
+        """
+            Embed the word as in Embedding,
+            but also append some other information about the word to the vector.
+        """
+        pass # TODO
+
+class RNN_GRUEncoder(nn.Module):
+    """bidirectional RNN layer with gated recurrent units (GRU).
+
+
+    """
+    def __init__(self, input_size, hidden_size, num_layers, drop_prob=0.):
+        super(RNN_GRUEncoder, self).__init__()
+
+    def forward(self, x, lengths):
+        """
+            Let x_t be the t-th word vector.
+            r_t = \sigma(W_r x_t + U_r h_{t-1}) # attention over hidden state
+            u_t = \sigma(W_u x_t + U_u h_{t-1}) # how much to forget / weight of new hidden state
+            h'_t = tanh(W x_t + U (r_t .* h_{t-1})) # next state, .* = element-wise multiplication
+            h_t = (1 - u_t) h_{t-1} + u_t h'_t # next state is an interpolation of last one and h', weight is u_t
+
+            h_t, r_t, u_t \in R^d (d = hidden state dimension)
+            W_r, W_u, W \in R^(n x d) and U_r, U_u, U \in R^(d x d) are the model parameters
+
+            After doing both directions of the RNN:
+            h_t = [h_t (forward) ; h_t (backward)] # concatenate the forward and backward directions at this point
+        """
+        pass # TODO
+
+class DCRAttention(nn.Module):
+    """Attention originally used by DCR.
+    """
+    def __init__(self, hidden_size, drop_prob=0.1):
+        super(DCRAttention, self).__init__()
+
+    def forward(self, c, q, c_mask, q_mask):
+        """
+            Attention on each p_j (jth word of the context p_i)
+            \alpha_jk = hp_j * hq_k
+            \beta_j = sum over k in Q of \alpha_jk hq_k
+            v_j = [hp_j ; \beta_j]
+
+            v_j \in R^4d
+
+            We then apply a second RNN_GRUEncoder to the v_js
+            to get \gamma_j (each should be each to [\gamma_j (forward) ; \gamma_j (backward)])
+            for each word.
+
+        """
+        pass # TODO
+
+class CandidateLayer(nn.Module):
+    """ new, custom layer that chooses a selection of potential chunk candidates
+    """
+    def __init__(self, num_canidates):
+        super(CandidateLayer, self).__init__()
+        self.num_candidates = num_canidates
+
+    def forward(self, c, q, c_mask, q_mask):
+        """
+            Still need to figure out what this layer looks like.
+        """
+
+
+        # return candidates ( a list of tuples of indices i.e. [(3, 5), (3, 6), (4, 6), (11, 16)])
+        # each m, n pair should have m < n and signify the range m to n inclusive.
+        pass # TODO
+
+class ChunkRepresentationLayer(nn.Module):
+    """ Create a chunk representation for each candidate chunk
+    """
+    def __init__(self):
+        super(CandidateLayer, self).__init__()
+
+    def forward(self, candidates, chunks):
+        """
+            For each candidate chunk c(m, n):
+            we construct \gamma(m, n) = [\gamma_m (forward) ; \gamma_n (backward)]
+        """
+        pass # TODO
+
+class RankerLayer(nn.Module):
+    """ Rank the candidate chunks with softmax
+    """
+    def __init__(self):
+        super(RankerLayer, self).__init__()
+
+    def forward(self, gammas):
+        """
+            Let b = |Q|
+            P[c(m , n)] = softmax(\gamma(m, n) * [hq_b (forward) ; hq_1 (backward)])
+
+            When training, we try to minize:
+
+            L = - \sum (training examples) log (A | P, Q)
+            Where A is the correct answer chunk.
+
+            ONLY train on examples where the correct answer is a candidate chunk!!
+        """
+        pass # TODO
+
 class Embedding(nn.Module):
     """Embedding layer used by BiDAF, without the character-level component.
 
