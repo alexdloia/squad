@@ -4,6 +4,8 @@ Author:
     Chris Chute (chute@stanford.edu)
 """
 
+from multiprocessing.sharedctypes import Value
+from turtle import backward
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -21,24 +23,38 @@ class CustomEmbedding(nn.Module):
     """
     def __init__(self, word_vectors, hidden_size, drop_prob=0.):
         super(CustomEmbedding, self).__init__()
-        # self.drop_prob = drop_prob
-        # self.embed = nn.Embedding.from_pretrained(word_vectors)
-        # self.proj = nn.Linear(word_vectors.size(1), hidden_size, bias=False)
+        self.drop_prob = drop_prob
+        self.embed = nn.Embedding.from_pretrained(word_vectors)
+        self.proj = nn.Linear(word_vectors.size(1), hidden_size, bias=False)
+        self.hwy = HighwayEncoder(2, hidden_size)
 
     def forward(self, x):
         """
             Embed the word as in Embedding,
             but also append some other information about the word to the vector.
+
+            x is a (batch_size, seq_len, embed_size) Tensor
+            note, len here could be the length of the paragraph of the question
         """
-        pass # TODO
+        emb = self.embed(x)   # (batch_size, seq_len, embed_size)
+        emb = F.dropout(emb, self.drop_prob, self.training)
+        emb = self.proj(emb)  # (batch_size, seq_len, hidden_size)
+        emb = self.hwy(emb)   # (batch_size, seq_len, hidden_size)
+        # TODO add meta-information, remove highway embedding?
+
+        return emb
 
 class RNN_GRUEncoder(nn.Module):
-    """bidirectional RNN layer with gated recurrent units (GRU).
-
-
+    """
+        bidirectional RNN layer with gated recurrent units (GRU).
     """
     def __init__(self, input_size, hidden_size, num_layers, drop_prob=0.):
         super(RNN_GRUEncoder, self).__init__()
+        self.drop_prob = drop_prob
+        self.rnn = nn.GRU(input_size, hidden_size, num_layers,
+                           batch_first=True,
+                           bidirectional=True,
+                           dropout=drop_prob if num_layers > 1 else 0.)
 
     def forward(self, x, lengths):
         """
@@ -54,15 +70,40 @@ class RNN_GRUEncoder(nn.Module):
             After doing both directions of the RNN:
             h_t = [h_t (forward) ; h_t (backward)] # concatenate the forward and backward directions at this point
         """
-        pass # TODO
+        # Save original padded length for use by pad_packed_sequence
+        orig_len = x.size(1)
+
+        # Sort by length and pack sequence for RNN
+        lengths, sort_idx = lengths.sort(0, descending=True)
+        x = x[sort_idx]     # (batch_size, seq_len, input_size)
+        x = pack_padded_sequence(x, lengths.cpu(), batch_first=True)
+
+        # Apply RNN
+        x, _ = self.rnn(x)  # (batch_size, seq_len, 2 * hidden_size)
+
+        # Unpack and reverse sort
+        x, _ = pad_packed_sequence(x, batch_first=True, total_length=orig_len)
+        _, unsort_idx = sort_idx.sort(0)
+        x = x[unsort_idx]   # (batch_size, seq_len, 2 * hidden_size)
+
+        # Apply dropout (RNN applies dropout after all but the last layer)
+        x = F.dropout(x, self.drop_prob, self.training) # shape (batch_size, seq_len, 2 * hidden_size)
+
+        return x
 
 class DCRAttention(nn.Module):
     """Attention originally used by DCR.
     """
-    def __init__(self, hidden_size, drop_prob=0.1):
+    def __init__(self, hidden_size, num_layers, drop_prob=0.):
         super(DCRAttention, self).__init__()
+        self.drop_prob = drop_prob
+        self.rnn = nn.GRU(4 * hidden_size, hidden_size, num_layers,
+                           batch_first=True,
+                           bidirectional=True,
+                           dropout=drop_prob if num_layers > 1 else 0.)
 
-    def forward(self, c, q, c_mask, q_mask):
+
+    def forward(self, hp, hq, c_mask, q_mask):
         """
             Attention on each p_j (jth word of the context p_i)
             \alpha_jk = hp_j * hq_k
@@ -76,16 +117,28 @@ class DCRAttention(nn.Module):
             for each word.
 
         """
-        pass # TODO
+        batch_size, p_len, _ = hp.size()
+        _, q_len, _ = hq.size()
+        raise ValueError("Untested code here - just psuedocode with some torch function suggestions embedded in it.")
+
+        alpha = torch.bmm(hp, torch.swapaxes(hq, 1, 2)) # (batch_size x p_len x 2d) times (batch_size x 2d x q_len) = (batch_size x p_len x q_len)
+
+        beta = torch.bmm(alpha, hq) # batch_size x p_len x q_len) times (batch_size x q_len x 2d) = (batch_size x p_len x 2d)
+
+        V = torch.concatenate((hp, beta), dim=2) # (batch_size x p_len x 2d) concat (batch_size x p_len x 2d) = (batch_size, p_len, 4d)
+
+        gammas, _ = self.rnn(V) # output from rnn is (batch_size x p_len x 2d)
+
+        return gammas
 
 class CandidateLayer(nn.Module):
     """ new, custom layer that chooses a selection of potential chunk candidates
     """
-    def __init__(self, num_canidates):
+    def __init__(self, num_candidates):
         super(CandidateLayer, self).__init__()
-        self.num_candidates = num_canidates
+        self.num_candidates = num_candidates
 
-    def forward(self, c, q, c_mask, q_mask):
+    def forward(self, c, q, p_mask, q_mask):
         """
             Still need to figure out what this layer looks like.
         """
@@ -93,20 +146,36 @@ class CandidateLayer(nn.Module):
 
         # return candidates ( a list of tuples of indices i.e. [(3, 5), (3, 6), (4, 6), (11, 16)])
         # each m, n pair should have m < n and signify the range m to n inclusive.
+        # might want to format this as a (num_candidates x 2) tensor
         pass # TODO
 
 class ChunkRepresentationLayer(nn.Module):
     """ Create a chunk representation for each candidate chunk
     """
     def __init__(self):
-        super(CandidateLayer, self).__init__()
+        super(ChunkRepresentationLayer, self).__init__()
 
-    def forward(self, candidates, chunks):
+    def forward(self, gammas, candidates, p_enc, q_enc, p_mask, q_mask):
         """
             For each candidate chunk c(m, n):
             we construct \gamma(m, n) = [\gamma_m (forward) ; \gamma_n (backward)]
+
+            gammas (batch_size x p_len x 2d) tensor
+            candidates (batch_size x num_candidates x 2) tensor
+
+            candidates is an index into gammas for us to use.
+
+            return chunk_repr, a (batch_size x num_candidates x 2d) tensor)
+
         """
-        pass # TODO
+        raise ValueError("Below is just real-ish psuedocode, not actual code")
+        forward_gammas = gammas[:, :, :d]
+        backward_gammas = gammas[:, :, d+1:]
+        # my thought of a maybe vectorized version of this? Should be looked at again though.
+        chunk_repr = torch.cat((forward_gammas[candidates[:, :, 0], :], backward_gammas[candidates[:, :, 1], :]))
+
+        return chunk_repr # (batch_size x num_candidates x 2d) tensor
+
 
 class RankerLayer(nn.Module):
     """ Rank the candidate chunks with softmax
@@ -114,8 +183,12 @@ class RankerLayer(nn.Module):
     def __init__(self):
         super(RankerLayer, self).__init__()
 
-    def forward(self, gammas):
+    def forward(self, chunk_repr, hq, q_mask):
         """
+            chunk_repr (batch_size x num_candidates x 2d) tensor
+            hq (batch_size, q_len, 2 * hidden_size) tensor
+            q_mask : mask on q , (batch_size x q_len) mask - I think?
+
             Let b = |Q|
             P[c(m , n)] = softmax(\gamma(m, n) * [hq_b (forward) ; hq_1 (backward)])
 
@@ -126,7 +199,16 @@ class RankerLayer(nn.Module):
 
             ONLY train on examples where the correct answer is a candidate chunk!!
         """
-        pass # TODO
+        raise ValueError("Just some lifelike psuedocode here")
+        batch_size, q_len, t = hq.size()
+        d = t // 2
+        # ok this is hard to vectorize. Need to last non-masked H entry at every entry in the batch.
+        # H = torch.concat((hq[:, :, :d], ???)) # (batch_size, 2d)
+        # multiply H (batch_size x 1 x 2d) by chunk_repr (batch_size x num_candidates x 2d) to get (batch_size x num_candidates x 1) output!!
+        # use torch.bmm probably
+
+
+
 
 class Embedding(nn.Module):
     """Embedding layer used by BiDAF, without the character-level component.

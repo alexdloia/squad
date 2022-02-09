@@ -17,7 +17,7 @@ import util
 from args import get_train_args
 from collections import OrderedDict
 from json import dumps
-from models import BiDAF
+from models import BiDAF, SCR
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from ujson import load as json_load
@@ -46,9 +46,13 @@ def main(args):
 
     # Get model
     log.info('Building model...')
-    model = BiDAF(word_vectors=word_vectors,
+    model = SCR(word_vectors=word_vectors,
                   hidden_size=args.hidden_size,
+                  num_candidates=20,
                   drop_prob=args.drop_prob)
+    # model = BiDAF(word_vectors=word_vectors,
+    #               hidden_size=args.hidden_size,
+    #               drop_prob=args.drop_prob)
     model = nn.DataParallel(model, args.gpu_ids)
     if args.load_path:
         log.info(f'Loading checkpoint from {args.load_path}...')

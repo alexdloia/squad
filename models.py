@@ -30,7 +30,7 @@ class SCR(nn.Module):
         hidden_size (int): Number of features in the hidden state at each layer.
         drop_prob (float): Dropout probability.
     """
-    def __init__(self, word_vectors, hidden_size, num_canidates, drop_prob=0.):
+    def __init__(self, word_vectors, hidden_size, num_candidates, drop_prob=0.):
         super(SCR, self).__init__()
         self.emb = layers.CustomEmbedding(word_vectors=word_vectors,
                                     hidden_size=hidden_size,
@@ -41,38 +41,43 @@ class SCR(nn.Module):
                                      num_layers=1,
                                      drop_prob=drop_prob)
 
-        self.att = layers.DCRAttention(hidden_size=2 * hidden_size,
-                                         drop_prob=drop_prob)
+        self.att = layers.DCRAttention(hidden_size=hidden_size,
+                                     num_layers=1,
+                                     drop_prob=drop_prob)
 
-        self.cand = layers.CandidateLayer(num_canidates=num_canidates)
+        self.cand = layers.CandidateLayer(num_candidates=num_candidates)
 
         self.repr = layers.ChunkRepresentationLayer()
 
-        self.out = layers.RankerLayer()
+        self.rank = layers.RankerLayer()
 
     def forward(self, pw_idxs, qw_idxs):
+
         p_mask = torch.zeros_like(pw_idxs) != pw_idxs
         q_mask = torch.zeros_like(qw_idxs) != qw_idxs
+
         p_len, q_len = p_mask.sum(-1), q_mask.sum(-1)
 
-        p_emb = self.emb(pw_idxs)         # (batch_size, p_len, hidden_size)
-        q_emb = self.emb(qw_idxs)         # (batch_size, q_len, hidden_size)
+        p_emb = self.emb(pw_idxs)         # (batch_size, p_len, embed_size)
+        q_emb = self.emb(qw_idxs)         # (batch_size, q_len, embed_size)
 
-        p_enc = self.enc(p_emb, p_len)    # (batch_size, p_len, 2 * hidden_size)
-        q_enc = self.enc(q_emb, q_len)    # (batch_size, q_len, 2 * hidden_size)
+        hp = self.enc(p_emb, p_len)    # (batch_size, p_len, 2 * hidden_size)
+        hq = self.enc(q_emb, q_len)    # (batch_size, q_len, 2 * hidden_size)
 
-        att = self.att(p_enc, q_enc, p_mask, q_mask)    # (batch_size, p_len, 4 * hidden_size)
+        gammas = self.att(hp, hq, p_mask, q_mask)    # (batch_size, p_len, 4 * hidden_size)
 
         candidates = self.cand(pw_idxs, qw_idxs) # (batch_size, num_candidates, 2)
 
         # ONLY train on examples where the correct answer is a candidate chunk!!
         # maybe check that somehow?
 
-        gammas = self.repr(att, candidates, p_enc, q_enc) # (batch_size, num_candidates, 2 * hidden_size)
+        # chunk_rep = gamma_bar(m, n) from the paper
+        chunk_repr = self.repr(gammas, candidates, hp, hq, p_mask, q_mask) # (batch_size, num_candidates, 2 * hidden_size)
 
-        out = self.out(gammas, q_enc)  # 2 tensors, each (batch_size, p_len)
+        out = self.rank(chunk_repr, hq, q_mask)  # 2 tensors, each (batch_size, p_len)
 
-        log_p1, log_p2 = out # for debugging htere
+        log_p1, log_p2 = out # for debugging here
+        raise ValueError("Done")
 
         return out
 
