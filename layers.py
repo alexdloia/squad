@@ -138,16 +138,20 @@ class CandidateLayer(nn.Module):
         super(CandidateLayer, self).__init__()
         self.num_candidates = num_candidates
 
-    def forward(self, c, q, p_mask, q_mask):
+    def forward(self, c, q, c_mask, q_mask, num_candidates):
         """
             Still need to figure out what this layer looks like.
         """
 
-
         # return candidates ( a list of tuples of indices i.e. [(3, 5), (3, 6), (4, 6), (11, 16)])
         # each m, n pair should have m < n and signify the range m to n inclusive.
         # might want to format this as a (num_candidates x 2) tensor
-        pass # TODO
+        batch_size = c.size()[0]
+        r = torch.ones(batch_size, num_candidates, 2, dtype=torch.long)
+        r[:, :, 0] = 0
+        r[:, :, 1] = 1
+        return r # make sure return value is a Long Tensor!
+        # TODO
 
 class ChunkRepresentationLayer(nn.Module):
     """ Create a chunk representation for each candidate chunk
@@ -168,9 +172,11 @@ class ChunkRepresentationLayer(nn.Module):
             return chunk_repr, a (batch_size x num_candidates x 2d) tensor)
 
         """
-        raise ValueError("Below is just real-ish psuedocode, not actual code")
+        bs, pl, d_2 = gammas.size()
+        d = d_2 // 2
         forward_gammas = gammas[:, :, :d]
-        backward_gammas = gammas[:, :, d+1:]
+        backward_gammas = gammas[:, :, d:]
+
         # my thought of a maybe vectorized version of this? Should be looked at again though.
         chunk_repr = torch.cat((forward_gammas[candidates[:, :, 0], :], backward_gammas[candidates[:, :, 1], :]))
 
@@ -183,9 +189,10 @@ class RankerLayer(nn.Module):
     def __init__(self):
         super(RankerLayer, self).__init__()
 
-    def forward(self, chunk_repr, hq, q_mask):
+    def forward(self, chunk_repr, candidates, hq, q_mask, c_mask):
         """
             chunk_repr (batch_size x num_candidates x 2d) tensor
+            candidates (batch_size x num_candidates x 2) tensor
             hq (batch_size, q_len, 2 * hidden_size) tensor
             q_mask : mask on q , (batch_size x q_len) mask - I think?
 
@@ -199,13 +206,20 @@ class RankerLayer(nn.Module):
 
             ONLY train on examples where the correct answer is a candidate chunk!!
         """
-        raise ValueError("Just some lifelike psuedocode here")
+        batch_size, c_len = c_mask.size()
+        p1 = torch.ones(batch_size, c_len)
+        p2 = torch.ones(batch_size, c_len)
+        F.normalize(p1)
+        F.normalize(p2)
+
+        return torch.log(p1), torch.log(p2)
         batch_size, q_len, t = hq.size()
         d = t // 2
         # ok this is hard to vectorize. Need to last non-masked H entry at every entry in the batch.
         # H = torch.concat((hq[:, :, :d], ???)) # (batch_size, 2d)
         # multiply H (batch_size x 1 x 2d) by chunk_repr (batch_size x num_candidates x 2d) to get (batch_size x num_candidates x 1) output!!
         # use torch.bmm probably
+
 
 
 
