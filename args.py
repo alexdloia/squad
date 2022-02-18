@@ -134,6 +134,10 @@ def get_train_args():
                         type=float,
                         default=0.999,
                         help='Decay rate for exponential moving average of parameters.')
+    parser.add_argument('--model',
+                        type=str,
+                        default="baseline",
+                        help='Name of model to train. baseline or src')
 
     args = parser.parse_args()
 

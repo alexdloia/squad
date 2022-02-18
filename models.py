@@ -62,7 +62,8 @@ class SCR(nn.Module):
 
         self.rank = layers.RankerLayer()
 
-    def forward(self, cw_idxs, qw_idxs):
+    def forward(self, cw_idxs, qw_idxs, candidates):
+        # candidates is a (batch_size, num_candidates, 2) tensor
         print("Starting SCR forward")
 
         c_mask = torch.zeros_like(cw_idxs) != cw_idxs # (batch_size, c_len)
@@ -80,11 +81,6 @@ class SCR(nn.Module):
 
         # this grabbing is only temporary for BiDAF attention
         gammas = self.att(hp, hq, c_mask, q_mask)[:, :, :(4 * self.hidden_size)]    # (batch_size, c_len, 4 * hidden_size)
-
-        candidates = self.cand(cw_idxs, qw_idxs, c_mask, q_mask, self.num_candidates) # (batch_size, num_candidates, 2)
-
-        # ONLY train on examples where the correct answer is a candidate chunk!!
-        # maybe check that somehow?
 
         # chunk_rep = gamma_bar(m, n) from the paper
         chunk_repr = self.repr(gammas, candidates, hp, hq, c_mask, q_mask) # (batch_size, num_candidates, 2 * hidden_size)

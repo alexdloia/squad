@@ -46,13 +46,16 @@ def main(args):
 
     # Get model
     log.info('Building model...')
-    model = SCR(word_vectors=word_vectors,
-                  hidden_size=args.hidden_size,
-                  num_candidates=20,
-                  drop_prob=args.drop_prob)
-    # model = BiDAF(word_vectors=word_vectors,
-    #               hidden_size=args.hidden_size,
-    #               drop_prob=args.drop_prob)
+    print(f"Running with model {args.model}")
+    if args.model == "scr":
+        model = SCR(word_vectors=word_vectors,
+                    hidden_size=args.hidden_size,
+                    num_candidates=20,
+                    drop_prob=args.drop_prob)
+    else:
+        model = BiDAF(word_vectors=word_vectors,
+                    hidden_size=args.hidden_size,
+                    drop_prob=args.drop_prob)
     model = nn.DataParallel(model, args.gpu_ids)
     if args.load_path:
         log.info(f'Loading checkpoint from {args.load_path}...')
@@ -106,11 +109,38 @@ def main(args):
                 batch_size = cw_idxs.size(0)
                 optimizer.zero_grad()
 
-                # Forward
-                log_p1, log_p2 = model(cw_idxs, qw_idxs)
-                y1, y2 = y1.to(device), y2.to(device)
-                loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
-                loss_val = loss.item()
+
+                if args.model == "scr":
+                    # TODO actual candidate layer
+                    print(y1)
+                    print(y2)
+                    # get candidates (batch_size x num_candidates x 2)
+                    candidates = torch.zeros(batch_size, model.num_candidates, 2, dtype=torch.long)
+                    chunk_y = torch.zeros(batch_size)
+                    for i in range(args.batch_size):
+                        candidates[i, :, 0] = 0
+                        candidates[i, :, 1] = torch.Tensor(range(model.num_candidates))
+                        # if answer not in candidates, for each chunk replace the last candidate with the answer chunk
+                        answer_chunk = torch.Tensor([y1[i], y2[i]])
+                        if answer_chunk not in candidates[i]:
+                            candidates[i, -1, :] = answer_chunk
+                            chunk_y[i] = model.num_candidates - 1
+                        else:
+                            chunk_y[i] = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero().item()
+
+
+                    logprob_chunks = model(cw_idxs, qw_idxs, candidates)
+
+                    loss = F.nll_loss(logprob_chunks, chunk_y)
+                    loss_val = loss.item()
+
+
+                else:
+                    # Forward
+                    log_p1, log_p2 = model(cw_idxs, qw_idxs)
+                    y1, y2 = y1.to(device), y2.to(device)
+                    loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
+                    loss_val = loss.item()
 
                 # Backward
                 loss.backward()
@@ -139,7 +169,8 @@ def main(args):
                     results, pred_dict = evaluate(model, dev_loader, device,
                                                   args.dev_eval_file,
                                                   args.max_ans_len,
-                                                  args.use_squad_v2)
+                                                  args.use_squad_v2,
+                                                  args.model == "scr")
                     saver.save(step, model, results[args.metric_name], device)
                     ema.resume(model)
 
@@ -159,7 +190,7 @@ def main(args):
                                    num_visuals=args.num_visuals)
 
 
-def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2):
+def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, chunk=False):
     nll_meter = util.AverageMeter()
 
     model.eval()
@@ -173,16 +204,33 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2):
             cw_idxs = cw_idxs.to(device)
             qw_idxs = qw_idxs.to(device)
             batch_size = cw_idxs.size(0)
+            print(y1)
 
             # Forward
-            log_p1, log_p2 = model(cw_idxs, qw_idxs)
-            y1, y2 = y1.to(device), y2.to(device)
-            loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
-            nll_meter.update(loss.item(), batch_size)
+            if chunk:
+                # TODO eval with actual candidate layer
+                pass
 
-            # Get F1 and EM scores
-            p1, p2 = log_p1.exp(), log_p2.exp()
-            starts, ends = util.discretize(p1, p2, max_len, use_squad_v2)
+
+
+                # TODO actual eval for scr here (eval candidate, scr seperately?)
+                # log_p1, log_p2 = model(cw_idxs, qw_idxs)
+                # y1, y2 = y1.to(device), y2.to(device)
+                # loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
+                # nll_meter.update(loss.item(), batch_size)
+
+                # # Get F1 and EM scores
+                # p1, p2 = log_p1.exp(), log_p2.exp()
+                # starts, ends = util.discretize(p1, p2, max_len, use_squad_v2)
+            else:
+                log_p1, log_p2 = model(cw_idxs, qw_idxs)
+                y1, y2 = y1.to(device), y2.to(device)
+                loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
+                nll_meter.update(loss.item(), batch_size)
+
+                # Get F1 and EM scores
+                p1, p2 = log_p1.exp(), log_p2.exp()
+                starts, ends = util.discretize(p1, p2, max_len, use_squad_v2)
 
             # Log info
             progress_bar.update(batch_size)
