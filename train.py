@@ -4,6 +4,7 @@ Author:
     Chris Chute (chute@stanford.edu)
 """
 
+import chunk
 import numpy as np
 import random
 import torch
@@ -23,6 +24,7 @@ from tqdm import tqdm
 from ujson import load as json_load
 from util import collate_fn, SQuAD
 
+NUM_CANDIDATES = 20
 
 def main(args):
     # Set up logging and devices
@@ -50,7 +52,7 @@ def main(args):
     if args.model == "scr":
         model = SCR(word_vectors=word_vectors,
                     hidden_size=args.hidden_size,
-                    num_candidates=20,
+                    num_candidates=NUM_CANDIDATES,
                     drop_prob=args.drop_prob)
     else:
         model = BiDAF(word_vectors=word_vectors,
@@ -112,22 +114,19 @@ def main(args):
 
                 if args.model == "scr":
                     # TODO actual candidate layer
-                    print(y1)
-                    print(y2)
                     # get candidates (batch_size x num_candidates x 2)
-                    candidates = torch.zeros(batch_size, model.num_candidates, 2, dtype=torch.long)
+                    candidates = torch.zeros(batch_size, NUM_CANDIDATES, 2, dtype=torch.long)
                     chunk_y = torch.zeros(batch_size)
                     for i in range(args.batch_size):
                         candidates[i, :, 0] = 0
-                        candidates[i, :, 1] = torch.Tensor(range(model.num_candidates))
+                        candidates[i, :, 1] = torch.Tensor(range(NUM_CANDIDATES))
                         # if answer not in candidates, for each chunk replace the last candidate with the answer chunk
                         answer_chunk = torch.Tensor([y1[i], y2[i]])
-                        if answer_chunk not in candidates[i]:
-                            candidates[i, -1, :] = answer_chunk
-                            chunk_y[i] = model.num_candidates - 1
+                        chunky = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
+                        if len(chunky) > 0:
+                            chunk_y[i] = chunky.item()
                         else:
-                            chunk_y[i] = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero().item()
-
+                            chunk_y[i] = NUM_CANDIDATES - 1
 
                     logprob_chunks = model(cw_idxs, qw_idxs, candidates)
 
