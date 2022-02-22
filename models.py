@@ -50,11 +50,11 @@ class SCR(nn.Module):
                                      num_layers=1,
                                      drop_prob=drop_prob)
 
-        # self.att = layers.DCRAttention(hidden_size=hidden_size,
-        #                              num_layers=1,
-        #                              drop_prob=drop_prob)
-        self.att = layers.BiDAFAttention(hidden_size=2 * hidden_size,
-                                         drop_prob=drop_prob)
+        self.att = layers.DCRAttention(hidden_size=hidden_size,
+                                     num_layers=1,
+                                     drop_prob=drop_prob)
+        # self.att = layers.BiDAFAttention(hidden_size=2 * hidden_size,
+        #                                  drop_prob=drop_prob)
 
         # self.cand = layers.CandidateLayer(num_candidates=num_candidates)
 
@@ -79,8 +79,7 @@ class SCR(nn.Module):
         hp = self.enc(c_emb, c_len)    # (batch_size, c_len, 2 * hidden_size)
         hq = self.enc(q_emb, q_len)    # (batch_size, q_len, 2 * hidden_size)
 
-        # this grabbing is only temporary for BiDAF attention
-        gammas = self.att(hp, hq, c_mask, q_mask)[:, :, :(4 * self.hidden_size)]    # (batch_size, c_len, 4 * hidden_size)
+        gammas = self.att(hp, hq, c_mask, q_mask) # (batch_size, c_len, 2 * hidden_size)
 
         # chunk_rep = gamma_bar(m, n) from the paper
         chunk_repr = self.repr(gammas, candidates, hp, hq, c_mask, q_mask) # (batch_size, num_candidates, 2 * hidden_size)
