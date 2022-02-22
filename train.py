@@ -89,6 +89,11 @@ def main(args):
                                weight_decay=args.l2_wd)
     scheduler = sched.LambdaLR(optimizer, lambda s: 1.)  # Constant LR
 
+    if args.model == 'scr':
+        cand_optimizer = optim.Adadelta(cand_model.parameters(), args.lr,
+                               weight_decay=args.l2_wd)
+        cand_scheduler = sched.LambdaLR(optimizer, lambda s: 1.)  # Constant LR
+
     # Get data loader
     log.info('Building dataset...')
     train_dataset = SQuAD(args.train_record_file, args.use_squad_v2)
@@ -122,16 +127,23 @@ def main(args):
 
 
                 if args.model == "scr":
-                    # TODO actual candidate layer
-                    # get candidates (batch_size x num_candidates x 2)
+                    cand_optimizer.zero_grad()
+
                     candidates = torch.zeros(batch_size, NUM_CANDIDATES, 2, dtype=torch.long)
                     chunk_y = torch.zeros(batch_size)
+                    log_p1, log_p2 = cand_model(cw_idxs, qw_idxs)
+                    y1, y2 = y1.to(device), y2.to(device)
+                    cand_loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
+                    cand_loss_val = cand_loss.item()
                     for i in range(args.batch_size):
-                        answer_chunk = torch.Tensor([y1[i], y2[i]])
-                        candidates[i, :, 0] = 0
-                        candidates[i, :, 1] = 1
-                        # if answer not in candidates, for each chunk replace the last candidate with the answer chunk
+                        p1, p2 = torch.exp(log_p1[i]), torch.exp(log_p2[i]) # (batch_size, c_len)
 
+                        # for now, random sampling WITH replacement for candidate generation
+                        candidates[i, :, 0] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p1, NUM_CANDIDATES, replacement=True)), dtype=torch.long)
+                        candidates[i, :, 1] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p2, NUM_CANDIDATES, replacement=True)), dtype=torch.long)
+                        torch.sort(candidates[i, :, :], axis=1)
+
+                        answer_chunk = torch.Tensor([y1[i], y2[i]])
                         chunky = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
                         if len(chunky) > 0:
                             # the correct answer is simply the index where we found the answer
@@ -140,6 +152,12 @@ def main(args):
                             candidates[i, -1, :] = answer_chunk
                             # the correct answer is where we inserted the answer
                             chunk_y[i] = NUM_CANDIDATES - 1
+                        print(p1)
+                        print(p2)
+                        print(candidates[i, :, :])
+                        print(answer_chunk)
+                        print(chunk_y)
+                        break
 
 
                     raise ValueError("We're done here.")
@@ -155,6 +173,12 @@ def main(args):
                     loss_val = loss.item()
 
                 # Backward
+                if args.model == 'scr':
+                    cand_loss.backward()
+                    nn.utils.clip_grad_norm_(cand_model.parameters(), args.max_grad_norm)
+                    cand_optimizer.step()
+                    cand_scheduler.step(step // batch_size)
+                    cand_ema(cand_model, step // batch_size)
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
                 optimizer.step()
@@ -178,10 +202,22 @@ def main(args):
                     # Evaluate and save checkpoint
                     log.info(f'Evaluating at step {step}...')
                     ema.assign(model)
-                    results, pred_dict = evaluate(model, dev_loader, device,
+                    if args.model == 'scr':
+                        cand_ema.assign(cand_model)
+                        results, pred_dict = evaluate(model, dev_loader, device,
+                                                    args.dev_eval_file,
+                                                    args.max_ans_len,
+                                                    args.use_squad_v2,
+                                                    cand_model,
+                                                    args.model == "scr")
+                        saver.save(step, model, results[args.metric_name], device)
+                        cand_ema.resume(cand_model)
+                    else:
+                        results, pred_dict = evaluate(model, dev_loader, device,
                                                   args.dev_eval_file,
                                                   args.max_ans_len,
                                                   args.use_squad_v2,
+                                                  None,
                                                   args.model == "scr")
                     saver.save(step, model, results[args.metric_name], device)
                     ema.resume(model)
@@ -202,7 +238,7 @@ def main(args):
                                    num_visuals=args.num_visuals)
 
 
-def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, chunk=False):
+def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_model=None, chunk=False):
     nll_meter = util.AverageMeter()
 
     model.eval()
@@ -221,6 +257,7 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, chunk
             # Forward
             if chunk:
                 # TODO eval with actual candidate layer
+                raise ValueError("No eval code yet")
                 pass
 
 
