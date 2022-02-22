@@ -62,6 +62,8 @@ def main(args):
                     hidden_size=args.hidden_size,
                     drop_prob=args.drop_prob)
     model = nn.DataParallel(model, args.gpu_ids)
+    if args.model == "scr":
+        cand_model = nn.DataParallel(cand_model, args.gpu_ids)
     if args.load_path:
         log.info(f'Loading checkpoint from {args.load_path}...')
         model, step = util.load_model(model, args.load_path, args.gpu_ids)
@@ -69,6 +71,10 @@ def main(args):
         step = 0
     model = model.to(device)
     model.train()
+    if args.model == "scr":
+        cand_model = cand_model.to(device)
+        cand_model.train()
+        cand_ema = util.EMA(cand_model, args.ema_decay)
     ema = util.EMA(model, args.ema_decay)
 
     # Get saver
@@ -82,6 +88,11 @@ def main(args):
     optimizer = optim.Adadelta(model.parameters(), args.lr,
                                weight_decay=args.l2_wd)
     scheduler = sched.LambdaLR(optimizer, lambda s: 1.)  # Constant LR
+
+    if args.model == 'scr':
+        cand_optimizer = optim.Adadelta(cand_model.parameters(), args.lr,
+                               weight_decay=args.l2_wd)
+        cand_scheduler = sched.LambdaLR(optimizer, lambda s: 1.)  # Constant LR
 
     # Get data loader
     log.info('Building dataset...')
@@ -115,46 +126,51 @@ def main(args):
                 optimizer.zero_grad()
 
 
-                if args.model == "scr":
+                cand_optimizer.zero_grad()
 
-                    candidates = torch.zeros(batch_size, NUM_CANDIDATES, 2, dtype=torch.long)
-                    chunk_y = torch.zeros(batch_size)
-                    log_p1, log_p2 = cand_model(cw_idxs, qw_idxs)
-                    p1, p2 = torch.exp(log_p1), torch.exp(log_p2)
-                    y1, y2 = y1.to(device), y2.to(device)
-                    cand_loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
-                    cand_loss_val = cand_loss.item()
-                    for i in range(args.batch_size):
-                         # (batch_size, c_len) -> (c_len,)
+                candidates = torch.zeros(batch_size, NUM_CANDIDATES, 2, dtype=torch.long)
+                chunk_y = torch.zeros(batch_size)
+                log_p1, log_p2 = cand_model(cw_idxs, qw_idxs)
+                p1, p2 = torch.exp(log_p1), torch.exp(log_p2)
+                y1, y2 = y1.to(device), y2.to(device)
+                cand_loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
+                cand_loss_val = cand_loss.item()
+                for i in range(args.batch_size):
+                        # (batch_size, c_len) -> (c_len,)
 
-                        # for now, random sampling WITH replacement for candidate generation
-                        candidates[i, :, 0] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p1[i], NUM_CANDIDATES, replacement=True)), dtype=torch.long)
-                        candidates[i, :, 1] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p2[i], NUM_CANDIDATES, replacement=True)), dtype=torch.long)
-                        candidates[i, :, :], _ = torch.sort(candidates[i, :, :], axis=1)
+                    # for now, random sampling WITH replacement for candidate generation
+                    candidates[i, :, 0] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p1[i], NUM_CANDIDATES, replacement=True)), dtype=torch.long)
+                    candidates[i, :, 1] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p2[i], NUM_CANDIDATES, replacement=True)), dtype=torch.long)
+                    candidates[i, :, :], _ = torch.sort(candidates[i, :, :], axis=1)
 
-                        answer_chunk = torch.Tensor([y1[i], y2[i]])
-                        chunky = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
-                        if len(chunky) > 0:
-                            # the correct answer is simply the index where we found the answer
-                            chunk_y[i] = chunky[0]
-                        else:
-                            candidates[i, -1, :] = answer_chunk
-                            # the correct answer is where we inserted the answer
-                            chunk_y[i] = NUM_CANDIDATES - 1
+                    answer_chunk = torch.Tensor([y1[i], y2[i]])
+                    chunky = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
+                    if len(chunky) > 0:
+                        # the correct answer is simply the index where we found the answer
+                        chunk_y[i] = chunky[0]
+                    else:
+                        candidates[i, -1, :] = answer_chunk
+                        # the correct answer is where we inserted the answer
+                        chunk_y[i] = NUM_CANDIDATES - 1
+                    print(p1)
+                    print(p2)
+                    print(candidates[i, :, :])
+                    print(answer_chunk)
+                    print(chunk_y)
+                    print(len(p1[i]))
 
                     logprob_chunks = model(cw_idxs, qw_idxs, candidates)
 
                     loss = F.nll_loss(logprob_chunks, chunk_y)
                     loss_val = loss.item()
 
-                else:
-                    # Forward
-                    log_p1, log_p2 = model(cw_idxs, qw_idxs)
-                    y1, y2 = y1.to(device), y2.to(device)
-                    loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
-                    loss_val = loss.item()
-
                 # Backward
+                cand_loss.backward()
+                nn.utils.clip_grad_norm_(cand_model.parameters(), args.max_grad_norm)
+                cand_optimizer.step()
+                cand_scheduler.step(step // batch_size)
+                cand_ema(cand_model, step // batch_size)
+                # might need a .detach here or something
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
                 optimizer.step()
@@ -178,29 +194,22 @@ def main(args):
                     # Evaluate and save checkpoint
                     log.info(f'Evaluating at step {step}...')
                     ema.assign(model)
-                    if args.model == 'scr':
-                        results, pred_dict = evaluate(model, dev_loader, device,
-                                                    args.dev_eval_file,
-                                                    args.max_ans_len,
-                                                    args.use_squad_v2,
-                                                    cand_model,
-                                                    args.model == "scr")
-                        saver.save(step, model, results[args.metric_name], device)
-                    else:
-                        results, pred_dict = evaluate(model, dev_loader, device,
-                                                  args.dev_eval_file,
-                                                  args.max_ans_len,
-                                                  args.use_squad_v2,
-                                                  None,
-                                                  args.model == "scr")
+                    cand_ema.assign(cand_model)
+                    results, pred_dict = evaluate(model, dev_loader, device,
+                                                args.dev_eval_file,
+                                                args.max_ans_len,
+                                                args.use_squad_v2,
+                                                cand_model)
                     saver.save(step, model, results[args.metric_name], device)
+                    # also save candidate model?
+                    cand_ema.resume(cand_model)
                     ema.resume(model)
 
-                    # Log to console
+                    # Log to console TODO
                     results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in results.items())
                     log.info(f'Dev {results_str}')
 
-                    # Log to TensorBoard
+                    # Log to TensorBoard TODO
                     log.info('Visualizing in TensorBoard...')
                     for k, v in results.items():
                         tbx.add_scalar(f'dev/{k}', v, step)

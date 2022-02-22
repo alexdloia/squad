@@ -56,7 +56,7 @@ class SCR(nn.Module):
         self.att = layers.BiDAFAttention(hidden_size=2 * hidden_size,
                                          drop_prob=drop_prob)
 
-        self.cand = layers.CandidateLayer(num_candidates=num_candidates)
+        # self.cand = layers.CandidateLayer(num_candidates=num_candidates)
 
         self.repr = layers.ChunkRepresentationLayer()
 
@@ -152,7 +152,5 @@ class BiDAF(nn.Module):
 
         out = self.out(att, mod, c_mask)  # 2 tensors, each (batch_size, c_len)
         log_p1, log_p2 = out
-        print(log_p1.size(), log_p2.size())
-        raise ValueError("Yeah we're done here")
 
         return out
