@@ -62,8 +62,6 @@ def main(args):
                     hidden_size=args.hidden_size,
                     drop_prob=args.drop_prob)
     model = nn.DataParallel(model, args.gpu_ids)
-    if args.model == "scr":
-        cand_model = nn.DataParallel(cand_model, args.gpu_ids)
     if args.load_path:
         log.info(f'Loading checkpoint from {args.load_path}...')
         model, step = util.load_model(model, args.load_path, args.gpu_ids)
@@ -71,10 +69,6 @@ def main(args):
         step = 0
     model = model.to(device)
     model.train()
-    if args.model == "scr":
-        cand_model = cand_model.to(device)
-        cand_model.train()
-        cand_ema = util.EMA(cand_model, args.ema_decay)
     ema = util.EMA(model, args.ema_decay)
 
     # Get saver
@@ -88,11 +82,6 @@ def main(args):
     optimizer = optim.Adadelta(model.parameters(), args.lr,
                                weight_decay=args.l2_wd)
     scheduler = sched.LambdaLR(optimizer, lambda s: 1.)  # Constant LR
-
-    if args.model == 'scr':
-        cand_optimizer = optim.Adadelta(cand_model.parameters(), args.lr,
-                               weight_decay=args.l2_wd)
-        cand_scheduler = sched.LambdaLR(optimizer, lambda s: 1.)  # Constant LR
 
     # Get data loader
     log.info('Building dataset...')
@@ -127,7 +116,6 @@ def main(args):
 
 
                 if args.model == "scr":
-                    cand_optimizer.zero_grad()
 
                     candidates = torch.zeros(batch_size, NUM_CANDIDATES, 2, dtype=torch.long)
                     chunk_y = torch.zeros(batch_size)
@@ -153,16 +141,8 @@ def main(args):
                             candidates[i, -1, :] = answer_chunk
                             # the correct answer is where we inserted the answer
                             chunk_y[i] = NUM_CANDIDATES - 1
-                        print(p1)
-                        print(p2)
-                        print(candidates[i, :, :])
-                        print(answer_chunk)
-                        print(chunk_y)
-                        print(len(p1[i]))
-                        break
 
-
-                    raise ValueError("We're done here.")
+                    logprob_chunks = model(cw_idxs, qw_idxs, candidates)
 
                     loss = F.nll_loss(logprob_chunks, chunk_y)
                     loss_val = loss.item()
@@ -175,12 +155,6 @@ def main(args):
                     loss_val = loss.item()
 
                 # Backward
-                if args.model == 'scr':
-                    cand_loss.backward()
-                    nn.utils.clip_grad_norm_(cand_model.parameters(), args.max_grad_norm)
-                    cand_optimizer.step()
-                    cand_scheduler.step(step // batch_size)
-                    cand_ema(cand_model, step // batch_size)
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
                 optimizer.step()
@@ -205,7 +179,6 @@ def main(args):
                     log.info(f'Evaluating at step {step}...')
                     ema.assign(model)
                     if args.model == 'scr':
-                        cand_ema.assign(cand_model)
                         results, pred_dict = evaluate(model, dev_loader, device,
                                                     args.dev_eval_file,
                                                     args.max_ans_len,
@@ -213,7 +186,6 @@ def main(args):
                                                     cand_model,
                                                     args.model == "scr")
                         saver.save(step, model, results[args.metric_name], device)
-                        cand_ema.resume(cand_model)
                     else:
                         results, pred_dict = evaluate(model, dev_loader, device,
                                                   args.dev_eval_file,
