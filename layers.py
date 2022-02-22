@@ -99,7 +99,7 @@ class DCRAttention(nn.Module):
     """Attention originally used by DCR.
     """
 
-    def __init__(self, hidden_size, num_layers, drop_prob=0.):
+    def __init__(self, hidden_size, num_layers=1, drop_prob=0.):
         super(DCRAttention, self).__init__()
         self.drop_prob = drop_prob
         self.rnn = nn.GRU(4 * hidden_size, hidden_size, num_layers,
@@ -123,16 +123,15 @@ class DCRAttention(nn.Module):
         """
         batch_size, p_len, _ = hp.size()
         _, q_len, _ = hq.size()
-        raise ValueError("Untested code here - just psuedocode with some torch function suggestions embedded in it.")
 
-        alpha = torch.bmm(hp, torch.swapaxes(hq, 1,
-                                             2))  # (batch_size x p_len x 2d) times (batch_size x 2d x q_len) = (batch_size x p_len x q_len)
+        alpha = torch.bmm(hp, torch.transpose(hq, 1,
+                                              2)) # (batch_size x p_len x 2d) x (batch_size x 2d x q_len) = (batch_size x p_len x q_len)
 
         beta = torch.bmm(alpha,
                          hq)  # batch_size x p_len x q_len) times (batch_size x q_len x 2d) = (batch_size x p_len x 2d)
 
-        V = torch.concatenate((hp, beta),
-                              dim=2)  # (batch_size x p_len x 2d) concat (batch_size x p_len x 2d) = (batch_size, p_len, 4d)
+        V = torch.cat((hp, beta),
+                      dim=2)  # (batch_size x p_len x 2d) concat (batch_size x p_len x 2d) = (batch_size, p_len, 4d)
 
         gammas, _ = self.rnn(V)  # output from rnn is (batch_size x p_len x 2d)
 
@@ -193,10 +192,10 @@ class ChunkRepresentationLayer(nn.Module):
 
         first_forward_gammas = torch.gather(forward_gammas, 1,
                                             first_word_idx.expand(batch_size, num_candidates,
-                                                                                d))  # batch_size x num_candidates x d
+                                                                  d))  # batch_size x num_candidates x d
         last_backward_gammas = torch.gather(backward_gammas, 1,
                                             last_word_idx.expand(batch_size, num_candidates,
-                                                                  d))  # batch_size x num_candidates x d
+                                                                 d))  # batch_size x num_candidates x d
         chunk_repr = torch.cat((first_forward_gammas, last_backward_gammas), dim=-1)  # batch_size x num_candidates x 2d
 
         return chunk_repr  # (batch_size x num_candidates x 2d) tensor
@@ -464,7 +463,8 @@ class BiDAFOutput(nn.Module):
 
 
 if __name__ == "__main__":
-    test = "ChunkRepresentationLayer"
+    test = "DCRAttention"
+    batch_size, num_candidates, d, p_len, q_len = 5, 4, 3, 10, 15
     if test == "RankerLayer":
         """
                     Ranker Layer:
@@ -483,7 +483,6 @@ if __name__ == "__main__":
     
                     ONLY train on examples where the correct answer is a candidate chunk!!
                 """
-        batch_size, num_candidates, d, q_len = 5, 4, 3, 10
         rank = RankerLayer()
         chunk_repr = torch.randn(batch_size, num_candidates, 2 * d)
         candidates = torch.randn(batch_size, num_candidates, 2)
@@ -505,8 +504,13 @@ if __name__ == "__main__":
                     return chunk_repr, a (batch_size x num_candidates x 2d) tensor)
 
                 """
-        batch_size, num_candidates, d, p_len = 5, 4, 3, 10
         crepr = ChunkRepresentationLayer()
         gammas = torch.randn(batch_size, p_len, 2 * d)
         candidates = torch.randint(p_len, size=(batch_size, num_candidates, 2))
         print(crepr(gammas, candidates, None, None, None, None))
+    elif test == "DCRAttention":
+        datt = DCRAttention(d)
+        hp = torch.randn(batch_size, p_len, 2 * d)
+        hq = torch.randn(batch_size, q_len, 2 * d)
+        print(datt(hp, hq, None, None))
+
