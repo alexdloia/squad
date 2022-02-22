@@ -170,7 +170,7 @@ class ChunkRepresentationLayer(nn.Module):
     def __init__(self):
         super(ChunkRepresentationLayer, self).__init__()
 
-    def forward(self, gammas, candidates, p_enc, q_enc, p_mask, q_mask):
+    def forward(self, gammas: torch.Tensor, candidates: torch.Tensor, p_enc, q_enc, p_mask, q_mask):
         """
             For each candidate chunk c(m, n):
             we construct \gamma(m, n) = [\gamma_m (forward) ; \gamma_n (backward)]
@@ -183,13 +183,21 @@ class ChunkRepresentationLayer(nn.Module):
             return chunk_repr, a (batch_size x num_candidates x 2d) tensor)
 
         """
-        bs, pl, d_2 = gammas.size()
-        d = d_2 // 2
+        batch_size, p_len, t = gammas.size()
+        _, num_candidates, _ = candidates.size()
+        d = t // 2
         forward_gammas = gammas[:, :, :d]
         backward_gammas = gammas[:, :, d:]
+        first_word_idx = candidates[:, :, 0].unsqueeze(-1)  # batch_size x num_candidates x 1
+        last_word_idx = candidates[:, :, 1].unsqueeze(-1)  # batch_size x num_candidates x 1
 
-        # my thought of a maybe vectorized version of this? Should be looked at again though.
-        chunk_repr = torch.cat((forward_gammas[candidates[:, :, 0], :], backward_gammas[candidates[:, :, 1], :]))
+        first_forward_gammas = torch.gather(forward_gammas, 1,
+                                            first_word_idx.expand(batch_size, num_candidates,
+                                                                                d))  # batch_size x num_candidates x d
+        last_backward_gammas = torch.gather(backward_gammas, 1,
+                                            last_word_idx.expand(batch_size, num_candidates,
+                                                                  d))  # batch_size x num_candidates x d
+        chunk_repr = torch.cat((first_forward_gammas, last_backward_gammas), dim=-1)  # batch_size x num_candidates x 2d
 
         return chunk_repr  # (batch_size x num_candidates x 2d) tensor
 
@@ -454,30 +462,51 @@ class BiDAFOutput(nn.Module):
 
         return log_p1, log_p2
 
+
 if __name__ == "__main__":
-    """
-                Ranker Layer:
-                chunk_repr (batch_size x num_candidates x 2d) tensor
-                candidates (batch_size x num_candidates x 2) tensor
-                hq (batch_size, q_len, 2d) tensor
-                q_mask : mask on q, (batch_size x q_len) mask - I think?
+    test = "ChunkRepresentationLayer"
+    if test == "RankerLayer":
+        """
+                    Ranker Layer:
+                    chunk_repr (batch_size x num_candidates x 2d) tensor
+                    candidates (batch_size x num_candidates x 2) tensor
+                    hq (batch_size, q_len, 2d) tensor
+                    q_mask : mask on q, (batch_size x q_len) mask - I think?
+    
+                    Let b = |Q|
+                    P[c(m , n)] = softmax(\gamma(m, n) * [hq_b (forward) ; hq_1 (backward)])
+    
+                    When training, we try to minimize:
+    
+                    L = - \sum (training examples) log (A | P, Q)
+                    Where A is the correct answer chunk.
+    
+                    ONLY train on examples where the correct answer is a candidate chunk!!
+                """
+        batch_size, num_candidates, d, q_len = 5, 4, 3, 10
+        rank = RankerLayer()
+        chunk_repr = torch.randn(batch_size, num_candidates, 2 * d)
+        candidates = torch.randn(batch_size, num_candidates, 2)
+        hq = torch.randn(batch_size, q_len, 2 * d)
+        q_mask = torch.ones(batch_size, q_len)
+        q_mask[:, 5:] = 0
+        q_mask = torch.zeros_like(q_mask) != q_mask
+        print(rank(chunk_repr, candidates, hq, q_mask, None))
+    elif test == "ChunkRepresentationLayer":
+        """
+                    For each candidate chunk c(m, n):
+                    we construct \gamma(m, n) = [\gamma_m (forward) ; \gamma_n (backward)]
 
-                Let b = |Q|
-                P[c(m , n)] = softmax(\gamma(m, n) * [hq_b (forward) ; hq_1 (backward)])
+                    gammas (batch_size x p_len x 2d) tensor
+                    candidates (batch_size x num_candidates x 2) tensor
 
-                When training, we try to minimize:
+                    candidates is an index into gammas for us to use.
 
-                L = - \sum (training examples) log (A | P, Q)
-                Where A is the correct answer chunk.
+                    return chunk_repr, a (batch_size x num_candidates x 2d) tensor)
 
-                ONLY train on examples where the correct answer is a candidate chunk!!
-            """
-    batch_size, num_candidates, d, q_len = 5, 4, 3, 10
-    rank = RankerLayer()
-    chunk_repr = torch.randn(batch_size, num_candidates, 2 * d)
-    candidates = torch.randn(batch_size, num_candidates, 2)
-    hq = torch.randn(batch_size, q_len, 2 * d)
-    q_mask = torch.ones(batch_size, q_len)
-    q_mask[:, 5:] = 0
-    q_mask = torch.zeros_like(q_mask) != q_mask
-    print(rank(chunk_repr, candidates, hq, q_mask, None))
+                """
+        batch_size, num_candidates, d, p_len = 5, 4, 3, 10
+        crepr = ChunkRepresentationLayer()
+        gammas = torch.randn(batch_size, p_len, 2 * d)
+        candidates = torch.randint(p_len, size=(batch_size, num_candidates, 2))
+        print(crepr(gammas, candidates, None, None, None, None))
