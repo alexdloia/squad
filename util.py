@@ -18,8 +18,6 @@ import ujson as json
 
 from collections import Counter
 
-from train import NUM_CANDIDATES
-
 def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device, train=True):
     """Given a candidate model, generate the candidates list for input into the SCr model along with a chunk_y which
     represents the solution index.
@@ -39,9 +37,11 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device
     chunk_y = torch.zeros(batch_size)
     log_p1, log_p2 = cand_model(cw_idxs, qw_idxs)
     p1, p2 = torch.exp(log_p1), torch.exp(log_p2)
-    y1, y2 = y1.to(device), y2.to(device)
-    cand_loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
-    cand_loss_val = cand_loss.item()
+    # loss calc only needed for gradient
+    # y1, y2 = y1.to(device), y2.to(device)
+    # cand_loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
+    # cand_loss_val = cand_loss.item()
+
     for i in range(batch_size):
             # (batch_size, c_len) -> (c_len,)
 

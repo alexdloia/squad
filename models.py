@@ -64,17 +64,14 @@ class SCR(nn.Module):
 
     def forward(self, cw_idxs, qw_idxs, candidates):
         # candidates is a (batch_size, num_candidates, 2) tensor
-        print("Starting SCR forward")
 
         c_mask = torch.zeros_like(cw_idxs) != cw_idxs # (batch_size, c_len)
         q_mask = torch.zeros_like(qw_idxs) != qw_idxs # (batch_size, q_len())
-        print(c_mask.size())
 
         c_len, q_len = c_mask.sum(-1), q_mask.sum(-1)
 
         c_emb = self.emb(cw_idxs)         # (batch_size, c_len, embed_size)
         q_emb = self.emb(qw_idxs)         # (batch_size, q_len, embed_size)
-        print(c_emb.size())
 
         hp = self.enc(c_emb, c_len)    # (batch_size, c_len, 2 * hidden_size)
         hq = self.enc(q_emb, q_len)    # (batch_size, q_len, 2 * hidden_size)
@@ -85,7 +82,6 @@ class SCR(nn.Module):
         chunk_repr = self.repr(gammas, candidates, hp, hq, c_mask, q_mask) # (batch_size, num_candidates, 2 * hidden_size)
 
         out = self.rank(chunk_repr, candidates, hq, q_mask, c_mask)  # 2 tensors, each (batch_size, c_len)
-        print("Finished 1 forward step")
 
         return out
 
