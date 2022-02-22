@@ -117,30 +117,7 @@ def main(args):
 
                 if args.model == "scr":
 
-                    candidates = torch.zeros(batch_size, NUM_CANDIDATES, 2, dtype=torch.long)
-                    chunk_y = torch.zeros(batch_size)
-                    log_p1, log_p2 = cand_model(cw_idxs, qw_idxs)
-                    p1, p2 = torch.exp(log_p1), torch.exp(log_p2)
-                    y1, y2 = y1.to(device), y2.to(device)
-                    cand_loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
-                    cand_loss_val = cand_loss.item()
-                    for i in range(args.batch_size):
-                         # (batch_size, c_len) -> (c_len,)
-
-                        # for now, random sampling WITH replacement for candidate generation
-                        candidates[i, :, 0] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p1[i], NUM_CANDIDATES, replacement=True)), dtype=torch.long)
-                        candidates[i, :, 1] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p2[i], NUM_CANDIDATES, replacement=True)), dtype=torch.long)
-                        candidates[i, :, :], _ = torch.sort(candidates[i, :, :], axis=1)
-
-                        answer_chunk = torch.Tensor([y1[i], y2[i]])
-                        chunky = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
-                        if len(chunky) > 0:
-                            # the correct answer is simply the index where we found the answer
-                            chunk_y[i] = chunky[0]
-                        else:
-                            candidates[i, -1, :] = answer_chunk
-                            # the correct answer is where we inserted the answer
-                            chunk_y[i] = NUM_CANDIDATES - 1
+                    candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), NUM_CANDIDATES, device, train=True)
 
                     logprob_chunks = model(cw_idxs, qw_idxs, candidates)
 
@@ -230,21 +207,16 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_
 
             # Forward
             if chunk:
-                # TODO eval with actual candidate layer
-                raise ValueError("No eval code yet")
-                pass
+                candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), NUM_CANDIDATES, device, train=True)
+                logprob_chunks = model(cw_idxs, qw_idxs, candidates)
+                chunk_y.to(device)
 
+                loss = F.nll_loss(logprob_chunks, chunk_y)
+                nll_meter.update(loss.item(), batch_size)
 
-
-                # TODO actual eval for scr here (eval candidate, scr seperately?)
-                # log_p1, log_p2 = model(cw_idxs, qw_idxs)
-                # y1, y2 = y1.to(device), y2.to(device)
-                # loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
-                # nll_meter.update(loss.item(), batch_size)
-
-                # # Get F1 and EM scores
-                # p1, p2 = log_p1.exp(), log_p2.exp()
-                # starts, ends = util.discretize(p1, p2, max_len, use_squad_v2)
+                # Get F1 and EM scores
+                prob_chunks = logprob_chunks.exp()
+                starts, ends = util.discretize(prob_chunks, candidates)
             else:
                 log_p1, log_p2 = model(cw_idxs, qw_idxs)
                 y1, y2 = y1.to(device), y2.to(device)

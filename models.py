@@ -85,8 +85,6 @@ class SCR(nn.Module):
         chunk_repr = self.repr(gammas, candidates, hp, hq, c_mask, q_mask) # (batch_size, num_candidates, 2 * hidden_size)
 
         out = self.rank(chunk_repr, candidates, hq, q_mask, c_mask)  # 2 tensors, each (batch_size, c_len)
-
-        log_p1, log_p2 = out # for debugging here
         print("Finished 1 forward step")
 
         return out

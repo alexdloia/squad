@@ -18,6 +18,69 @@ import ujson as json
 
 from collections import Counter
 
+from train import NUM_CANDIDATES
+
+def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device, train=True):
+    """Given a candidate model, generate the candidates list for input into the SCr model along with a chunk_y which
+    represents the solution index.
+
+    Args:
+        cand_model (function): Generates a (batch_size x num_candidates x 2) tensor given cq_idxs, qw_idxs
+        cw_idxs (tensor): context word indiced
+        qw_idxs (tensor): questino word indices
+        train (bool, optional): whehter or not we are in train time. The correct chunk is supplied during train time. Defaults to True.
+
+    Returns:
+        candidates (tensor): (batch_size x num_candidates x 2) tensor of candidates
+    """
+    y1, y2 = ys
+    batch_size = cw_idxs.size()[0]
+    candidates = torch.zeros(batch_size, num_candidates, 2, dtype=torch.long)
+    chunk_y = torch.zeros(batch_size)
+    log_p1, log_p2 = cand_model(cw_idxs, qw_idxs)
+    p1, p2 = torch.exp(log_p1), torch.exp(log_p2)
+    y1, y2 = y1.to(device), y2.to(device)
+    cand_loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
+    cand_loss_val = cand_loss.item()
+    for i in range(batch_size):
+            # (batch_size, c_len) -> (c_len,)
+
+        # for now, random sampling WITH replacement for candidate generation
+        candidates[i, :, 0] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p1[i], num_candidates, replacement=True)), dtype=torch.long)
+        candidates[i, :, 1] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p2[i], num_candidates, replacement=True)), dtype=torch.long)
+        candidates[i, :, :], _ = torch.sort(candidates[i, :, :], axis=1)
+
+        answer_chunk = torch.Tensor([y1[i], y2[i]])
+        chunky = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
+        if len(chunky) > 0:
+            # the correct answer is simply the index where we found the answer
+            chunk_y[i] = chunky[0]
+        else:
+            candidates[i, -1, :] = answer_chunk
+            # the correct answer is where we inserted the answer
+            chunk_y[i] = num_candidates - 1
+
+    return candidates, chunk_y
+
+def chunk_discretize(prob_chunks, candidates):
+    """Discretizes prob_chunks in a way to equal the format of the util function discretize
+
+    Args:
+        prob_chunks (tensor): (batch_size x num_candidates) tensor of chunk probabilities
+        candidates (tensor): (batch_size x num_candidates x 2) tensor of the start/end indices of candidates
+
+    Returns:
+        starts: (batch_size,) tensor of the start indicies of the most likely chunks
+        ends: (batch_size,) tensor of the end indices of the most likely chunks
+    """
+    batch_size, _ = prob_chunks.size()
+    best_chunks = torch.argmax(prob_chunks, axis=1)
+    starts = candidates[range(batch_size), best_chunks, 0]
+    ends = candidates[range(batch_size), best_chunks, 1]
+
+    return starts, ends
+
+
 
 class SQuAD(data.Dataset):
     """Stanford Question Answering Dataset (SQuAD).
