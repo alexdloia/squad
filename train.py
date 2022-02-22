@@ -54,11 +54,16 @@ def main(args):
                     hidden_size=args.hidden_size,
                     num_candidates=NUM_CANDIDATES,
                     drop_prob=args.drop_prob)
+        cand_model = BiDAF(word_vectors=word_vectors,
+                    hidden_size=args.hidden_size,
+                    drop_prob=args.drop_prob)
     else:
         model = BiDAF(word_vectors=word_vectors,
                     hidden_size=args.hidden_size,
                     drop_prob=args.drop_prob)
     model = nn.DataParallel(model, args.gpu_ids)
+    if args.model == "scr":
+        cand_model = nn.DataParallel(cand_model, args.gpu_ids)
     if args.load_path:
         log.info(f'Loading checkpoint from {args.load_path}...')
         model, step = util.load_model(model, args.load_path, args.gpu_ids)
@@ -66,6 +71,10 @@ def main(args):
         step = 0
     model = model.to(device)
     model.train()
+    if args.model == "scr":
+        cand_model = cand_model.to(device)
+        cand_model.train()
+        cand_ema = util.EMA(cand_model, args.ema_decay)
     ema = util.EMA(model, args.ema_decay)
 
     # Get saver
@@ -118,21 +127,25 @@ def main(args):
                     candidates = torch.zeros(batch_size, NUM_CANDIDATES, 2, dtype=torch.long)
                     chunk_y = torch.zeros(batch_size)
                     for i in range(args.batch_size):
-                        candidates[i, :, 0] = 0
-                        candidates[i, :, 1] = torch.Tensor(range(NUM_CANDIDATES))
-                        # if answer not in candidates, for each chunk replace the last candidate with the answer chunk
                         answer_chunk = torch.Tensor([y1[i], y2[i]])
+                        candidates[i, :, 0] = 0
+                        candidates[i, :, 1] = 1
+                        # if answer not in candidates, for each chunk replace the last candidate with the answer chunk
+
                         chunky = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
                         if len(chunky) > 0:
-                            chunk_y[i] = chunky.item()
+                            # the correct answer is simply the index where we found the answer
+                            chunk_y[i] = chunky[0]
                         else:
+                            candidates[i, -1, :] = answer_chunk
+                            # the correct answer is where we inserted the answer
                             chunk_y[i] = NUM_CANDIDATES - 1
 
-                    logprob_chunks = model(cw_idxs, qw_idxs, candidates)
+
+                    raise ValueError("We're done here.")
 
                     loss = F.nll_loss(logprob_chunks, chunk_y)
                     loss_val = loss.item()
-
 
                 else:
                     # Forward
