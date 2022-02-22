@@ -125,7 +125,7 @@ class DCRAttention(nn.Module):
         _, q_len, _ = hq.size()
 
         alpha = torch.bmm(hp, torch.transpose(hq, 1,
-                                              2)) # (batch_size x p_len x 2d) x (batch_size x 2d x q_len) = (batch_size x p_len x q_len)
+                                              2))  # (batch_size x p_len x 2d) x (batch_size x 2d x q_len) = (batch_size x p_len x q_len)
 
         beta = torch.bmm(alpha,
                          hq)  # batch_size x p_len x q_len) times (batch_size x q_len x 2d) = (batch_size x p_len x 2d)
@@ -191,10 +191,10 @@ class ChunkRepresentationLayer(nn.Module):
         last_word_idx = candidates[:, :, 1].unsqueeze(-1)  # batch_size x num_candidates x 1
 
         first_forward_gammas = torch.gather(forward_gammas, 1,
-                                            first_word_idx.expand(batch_size, num_candidates,
+                                            first_word_idx.expand(-1, -1,
                                                                   d))  # batch_size x num_candidates x d
         last_backward_gammas = torch.gather(backward_gammas, 1,
-                                            last_word_idx.expand(batch_size, num_candidates,
+                                            last_word_idx.expand(-1, -1,
                                                                  d))  # batch_size x num_candidates x d
         chunk_repr = torch.cat((first_forward_gammas, last_backward_gammas), dim=-1)  # batch_size x num_candidates x 2d
 
@@ -463,7 +463,7 @@ class BiDAFOutput(nn.Module):
 
 
 if __name__ == "__main__":
-    test = "DCRAttention"
+    test = "ChunkRepresentationLayer"
     batch_size, num_candidates, d, p_len, q_len = 5, 4, 3, 10, 15
     if test == "RankerLayer":
         """
@@ -513,4 +513,3 @@ if __name__ == "__main__":
         hp = torch.randn(batch_size, p_len, 2 * d)
         hq = torch.randn(batch_size, q_len, 2 * d)
         print(datt(hp, hq, None, None))
-
