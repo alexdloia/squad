@@ -21,6 +21,7 @@ class CustomEmbedding(nn.Module):
     some meta-information about the word.
     POS, NER, IsInQuestion, IsLemmaInQuestion, IsCapitalized
     """
+
     def __init__(self, word_vectors, hidden_size, drop_prob=0.):
         super(CustomEmbedding, self).__init__()
         self.drop_prob = drop_prob
@@ -36,25 +37,27 @@ class CustomEmbedding(nn.Module):
             x is a (batch_size, seq_len, embed_size) Tensor
             note, len here could be the length of the paragraph of the question
         """
-        emb = self.embed(x)   # (batch_size, seq_len, embed_size)
+        emb = self.embed(x)  # (batch_size, seq_len, embed_size)
         emb = F.dropout(emb, self.drop_prob, self.training)
         emb = self.proj(emb)  # (batch_size, seq_len, hidden_size)
-        emb = self.hwy(emb)   # (batch_size, seq_len, hidden_size)
+        emb = self.hwy(emb)  # (batch_size, seq_len, hidden_size)
         # TODO add meta-information, remove highway embedding?
 
         return emb
+
 
 class RNN_GRUEncoder(nn.Module):
     """
         bidirectional RNN layer with gated recurrent units (GRU).
     """
+
     def __init__(self, input_size, hidden_size, num_layers, drop_prob=0.):
         super(RNN_GRUEncoder, self).__init__()
         self.drop_prob = drop_prob
         self.rnn = nn.GRU(input_size, hidden_size, num_layers,
-                           batch_first=True,
-                           bidirectional=True,
-                           dropout=drop_prob if num_layers > 1 else 0.)
+                          batch_first=True,
+                          bidirectional=True,
+                          dropout=drop_prob if num_layers > 1 else 0.)
 
     def forward(self, x, lengths):
         """
@@ -75,7 +78,7 @@ class RNN_GRUEncoder(nn.Module):
 
         # Sort by length and pack sequence for RNN
         lengths, sort_idx = lengths.sort(0, descending=True)
-        x = x[sort_idx]     # (batch_size, seq_len, input_size)
+        x = x[sort_idx]  # (batch_size, seq_len, input_size)
         x = pack_padded_sequence(x, lengths.cpu(), batch_first=True)
 
         # Apply RNN
@@ -84,24 +87,25 @@ class RNN_GRUEncoder(nn.Module):
         # Unpack and reverse sort
         x, _ = pad_packed_sequence(x, batch_first=True, total_length=orig_len)
         _, unsort_idx = sort_idx.sort(0)
-        x = x[unsort_idx]   # (batch_size, seq_len, 2 * hidden_size)
+        x = x[unsort_idx]  # (batch_size, seq_len, 2 * hidden_size)
 
         # Apply dropout (RNN applies dropout after all but the last layer)
-        x = F.dropout(x, self.drop_prob, self.training) # shape (batch_size, seq_len, 2 * hidden_size)
+        x = F.dropout(x, self.drop_prob, self.training)  # shape (batch_size, seq_len, 2 * hidden_size)
 
         return x
+
 
 class DCRAttention(nn.Module):
     """Attention originally used by DCR.
     """
+
     def __init__(self, hidden_size, num_layers, drop_prob=0.):
         super(DCRAttention, self).__init__()
         self.drop_prob = drop_prob
         self.rnn = nn.GRU(4 * hidden_size, hidden_size, num_layers,
-                           batch_first=True,
-                           bidirectional=True,
-                           dropout=drop_prob if num_layers > 1 else 0.)
-
+                          batch_first=True,
+                          bidirectional=True,
+                          dropout=drop_prob if num_layers > 1 else 0.)
 
     def forward(self, hp, hq, c_mask, q_mask):
         """
@@ -121,19 +125,24 @@ class DCRAttention(nn.Module):
         _, q_len, _ = hq.size()
         raise ValueError("Untested code here - just psuedocode with some torch function suggestions embedded in it.")
 
-        alpha = torch.bmm(hp, torch.swapaxes(hq, 1, 2)) # (batch_size x p_len x 2d) times (batch_size x 2d x q_len) = (batch_size x p_len x q_len)
+        alpha = torch.bmm(hp, torch.swapaxes(hq, 1,
+                                             2))  # (batch_size x p_len x 2d) times (batch_size x 2d x q_len) = (batch_size x p_len x q_len)
 
-        beta = torch.bmm(alpha, hq) # batch_size x p_len x q_len) times (batch_size x q_len x 2d) = (batch_size x p_len x 2d)
+        beta = torch.bmm(alpha,
+                         hq)  # batch_size x p_len x q_len) times (batch_size x q_len x 2d) = (batch_size x p_len x 2d)
 
-        V = torch.concatenate((hp, beta), dim=2) # (batch_size x p_len x 2d) concat (batch_size x p_len x 2d) = (batch_size, p_len, 4d)
+        V = torch.concatenate((hp, beta),
+                              dim=2)  # (batch_size x p_len x 2d) concat (batch_size x p_len x 2d) = (batch_size, p_len, 4d)
 
-        gammas, _ = self.rnn(V) # output from rnn is (batch_size x p_len x 2d)
+        gammas, _ = self.rnn(V)  # output from rnn is (batch_size x p_len x 2d)
 
         return gammas
+
 
 class CandidateLayer(nn.Module):
     """ new, custom layer that chooses a selection of potential chunk candidates
     """
+
     def __init__(self, num_candidates):
         super(CandidateLayer, self).__init__()
         self.num_candidates = num_candidates
@@ -150,12 +159,14 @@ class CandidateLayer(nn.Module):
         r = torch.ones(batch_size, num_candidates, 2, dtype=torch.long)
         r[:, :, 0] = 0
         r[:, :, 1] = 1
-        return r # make sure return value is a Long Tensor!
+        return r  # make sure return value is a Long Tensor!
         # TODO
+
 
 class ChunkRepresentationLayer(nn.Module):
     """ Create a chunk representation for each candidate chunk
     """
+
     def __init__(self):
         super(ChunkRepresentationLayer, self).__init__()
 
@@ -180,48 +191,53 @@ class ChunkRepresentationLayer(nn.Module):
         # my thought of a maybe vectorized version of this? Should be looked at again though.
         chunk_repr = torch.cat((forward_gammas[candidates[:, :, 0], :], backward_gammas[candidates[:, :, 1], :]))
 
-        return chunk_repr # (batch_size x num_candidates x 2d) tensor
+        return chunk_repr  # (batch_size x num_candidates x 2d) tensor
 
 
 class RankerLayer(nn.Module):
     """ Rank the candidate chunks with softmax
     """
+
     def __init__(self):
         super(RankerLayer, self).__init__()
 
-    def forward(self, chunk_repr, candidates, hq, q_mask, c_mask):
+    def forward(self, chunk_repr: torch.Tensor, candidates: torch.Tensor, hq: torch.Tensor, q_mask: torch.Tensor,
+                c_mask: torch.Tensor):
         """
             chunk_repr (batch_size x num_candidates x 2d) tensor
             candidates (batch_size x num_candidates x 2) tensor
-            hq (batch_size, q_len, 2 * hidden_size) tensor
-            q_mask : mask on q , (batch_size x q_len) mask - I think?
+            hq (batch_size, q_len, 2d) tensor
+            q_mask : mask on q, (batch_size x q_len) mask - I think?
 
             Let b = |Q|
             P[c(m , n)] = softmax(\gamma(m, n) * [hq_b (forward) ; hq_1 (backward)])
 
-            When training, we try to minize:
+            When training, we try to minimize:
 
             L = - \sum (training examples) log (A | P, Q)
             Where A is the correct answer chunk.
 
             ONLY train on examples where the correct answer is a candidate chunk!!
         """
-        batch_size, c_len = c_mask.size()
-        p1 = torch.ones(batch_size, c_len)
-        p2 = torch.ones(batch_size, c_len)
-        F.normalize(p1)
-        F.normalize(p2)
+        # batch_size, c_len = c_mask.size()
+        # p1 = torch.ones(batch_size, c_len)
+        # p2 = torch.ones(batch_size, c_len)
+        # F.normalize(p1)
+        # F.normalize(p2)
+        #
+        # return torch.log(p1), torch.log(p2)
 
-        return torch.log(p1), torch.log(p2)
         batch_size, q_len, t = hq.size()
         d = t // 2
-        # ok this is hard to vectorize. Need to last non-masked H entry at every entry in the batch.
-        # H = torch.concat((hq[:, :, :d], ???)) # (batch_size, 2d)
-        # multiply H (batch_size x 1 x 2d) by chunk_repr (batch_size x num_candidates x 2d) to get (batch_size x num_candidates x 1) output!!
-        # use torch.bmm probably
-
-
-
+        q_last_indices = q_mask.long().argmin(dim=-1) - 1
+        last_forwards_hq = hq[torch.arange(batch_size), q_last_indices, :d]  # batch_size x d
+        first_backwards_hq = hq[:, 0, d:].squeeze(1)
+        H = torch.cat((last_forwards_hq, first_backwards_hq), dim=-1).unsqueeze(-1)  # batch_size x 2d x 1
+        cos_sim = torch.bmm(chunk_repr,
+                            H)  # (batch_size x num_candidates x 2d) x (batch_size x 2d x 1) = (batch_size x num_candidates x 1)
+        cos_sim = cos_sim.squeeze(-1)
+        sm = F.log_softmax(cos_sim, dim=-1)
+        return sm
 
 
 class Embedding(nn.Module):
@@ -235,6 +251,7 @@ class Embedding(nn.Module):
         hidden_size (int): Size of hidden activations.
         drop_prob (float): Probability of zero-ing out activations
     """
+
     def __init__(self, word_vectors, hidden_size, drop_prob):
         super(Embedding, self).__init__()
         self.drop_prob = drop_prob
@@ -243,10 +260,10 @@ class Embedding(nn.Module):
         self.hwy = HighwayEncoder(2, hidden_size)
 
     def forward(self, x):
-        emb = self.embed(x)   # (batch_size, seq_len, embed_size)
+        emb = self.embed(x)  # (batch_size, seq_len, embed_size)
         emb = F.dropout(emb, self.drop_prob, self.training)
         emb = self.proj(emb)  # (batch_size, seq_len, hidden_size)
-        emb = self.hwy(emb)   # (batch_size, seq_len, hidden_size)
+        emb = self.hwy(emb)  # (batch_size, seq_len, hidden_size)
 
         return emb
 
@@ -263,6 +280,7 @@ class HighwayEncoder(nn.Module):
         num_layers (int): Number of layers in the highway encoder.
         hidden_size (int): Size of hidden activations.
     """
+
     def __init__(self, num_layers, hidden_size):
         super(HighwayEncoder, self).__init__()
         self.transforms = nn.ModuleList([nn.Linear(hidden_size, hidden_size)
@@ -292,6 +310,7 @@ class RNNEncoder(nn.Module):
         num_layers (int): Number of layers of RNN cells to use.
         drop_prob (float): Probability of zero-ing out activations.
     """
+
     def __init__(self,
                  input_size,
                  hidden_size,
@@ -310,7 +329,7 @@ class RNNEncoder(nn.Module):
 
         # Sort by length and pack sequence for RNN
         lengths, sort_idx = lengths.sort(0, descending=True)
-        x = x[sort_idx]     # (batch_size, seq_len, input_size)
+        x = x[sort_idx]  # (batch_size, seq_len, input_size)
         x = pack_padded_sequence(x, lengths.cpu(), batch_first=True)
 
         # Apply RNN
@@ -319,7 +338,7 @@ class RNNEncoder(nn.Module):
         # Unpack and reverse sort
         x, _ = pad_packed_sequence(x, batch_first=True, total_length=orig_len)
         _, unsort_idx = sort_idx.sort(0)
-        x = x[unsort_idx]   # (batch_size, seq_len, 2 * hidden_size)
+        x = x[unsort_idx]  # (batch_size, seq_len, 2 * hidden_size)
 
         # Apply dropout (RNN applies dropout after all but the last layer)
         x = F.dropout(x, self.drop_prob, self.training)
@@ -342,6 +361,7 @@ class BiDAFAttention(nn.Module):
         hidden_size (int): Size of hidden activations.
         drop_prob (float): Probability of zero-ing out activations.
     """
+
     def __init__(self, hidden_size, drop_prob=0.1):
         super(BiDAFAttention, self).__init__()
         self.drop_prob = drop_prob
@@ -355,11 +375,11 @@ class BiDAFAttention(nn.Module):
     def forward(self, c, q, c_mask, q_mask):
         batch_size, c_len, _ = c.size()
         q_len = q.size(1)
-        s = self.get_similarity_matrix(c, q)        # (batch_size, c_len, q_len)
+        s = self.get_similarity_matrix(c, q)  # (batch_size, c_len, q_len)
         c_mask = c_mask.view(batch_size, c_len, 1)  # (batch_size, c_len, 1)
         q_mask = q_mask.view(batch_size, 1, q_len)  # (batch_size, 1, q_len)
-        s1 = masked_softmax(s, q_mask, dim=2)       # (batch_size, c_len, q_len)
-        s2 = masked_softmax(s, c_mask, dim=1)       # (batch_size, c_len, q_len)
+        s1 = masked_softmax(s, q_mask, dim=2)  # (batch_size, c_len, q_len)
+        s2 = masked_softmax(s, c_mask, dim=1)  # (batch_size, c_len, q_len)
 
         # (bs, c_len, q_len) x (bs, q_len, hid_size) => (bs, c_len, hid_size)
         a = torch.bmm(s1, q)
@@ -387,8 +407,8 @@ class BiDAFAttention(nn.Module):
 
         # Shapes: (batch_size, c_len, q_len)
         s0 = torch.matmul(c, self.c_weight).expand([-1, -1, q_len])
-        s1 = torch.matmul(q, self.q_weight).transpose(1, 2)\
-                                           .expand([-1, c_len, -1])
+        s1 = torch.matmul(q, self.q_weight).transpose(1, 2) \
+            .expand([-1, c_len, -1])
         s2 = torch.matmul(c * self.cq_weight, q.transpose(1, 2))
         s = s0 + s1 + s2 + self.bias
 
@@ -408,6 +428,7 @@ class BiDAFOutput(nn.Module):
         hidden_size (int): Hidden size used in the BiDAF model.
         drop_prob (float): Probability of zero-ing out activations.
     """
+
     def __init__(self, hidden_size, drop_prob):
         super(BiDAFOutput, self).__init__()
         self.att_linear_1 = nn.Linear(8 * hidden_size, 1)
@@ -432,3 +453,31 @@ class BiDAFOutput(nn.Module):
         log_p2 = masked_softmax(logits_2.squeeze(), mask, log_softmax=True)
 
         return log_p1, log_p2
+
+if __name__ == "__main__":
+    """
+                Ranker Layer:
+                chunk_repr (batch_size x num_candidates x 2d) tensor
+                candidates (batch_size x num_candidates x 2) tensor
+                hq (batch_size, q_len, 2d) tensor
+                q_mask : mask on q, (batch_size x q_len) mask - I think?
+
+                Let b = |Q|
+                P[c(m , n)] = softmax(\gamma(m, n) * [hq_b (forward) ; hq_1 (backward)])
+
+                When training, we try to minimize:
+
+                L = - \sum (training examples) log (A | P, Q)
+                Where A is the correct answer chunk.
+
+                ONLY train on examples where the correct answer is a candidate chunk!!
+            """
+    batch_size, num_candidates, d, q_len = 5, 4, 3, 10
+    rank = RankerLayer()
+    chunk_repr = torch.randn(batch_size, num_candidates, 2 * d)
+    candidates = torch.randn(batch_size, num_candidates, 2)
+    hq = torch.randn(batch_size, q_len, 2 * d)
+    q_mask = torch.ones(batch_size, q_len)
+    q_mask[:, 5:] = 0
+    q_mask = torch.zeros_like(q_mask) != q_mask
+    print(rank(chunk_repr, candidates, hq, q_mask, None))
