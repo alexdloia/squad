@@ -170,10 +170,10 @@ def get_test_args():
                         default='submission.csv',
                         help='Name for submission file.')
 
-    # Require load_path for test.py
+    # Require load_model_path for test.py
     args = parser.parse_args()
-    if not args.load_path:
-        raise argparse.ArgumentError('Missing required argument --load_path')
+    if not args.load_model_path:
+        raise argparse.ArgumentError('Missing required argument --load_model_path')
 
     return args
 
@@ -242,7 +242,11 @@ def add_train_test_args(parser):
                         type=int,
                         default=10,
                         help='Number of examples to visualize in TensorBoard.')
-    parser.add_argument('--load_path',
+    parser.add_argument('--load_model_path',
                         type=str,
                         default=None,
                         help='Path to load as a model checkpoint.')
+    parser.add_argument('--load_cand_model_path',
+                        type=str,
+                        default=None,
+                        help='Path to load as a candidate model checkpoint.')

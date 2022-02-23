@@ -64,11 +64,17 @@ def main(args):
                     hidden_size=args.hidden_size,
                     drop_prob=args.drop_prob).to(device)
     model = nn.DataParallel(model, args.gpu_ids)
-    if args.load_path:
-        log.info(f'Loading checkpoint from {args.load_path}...')
-        model, step = util.load_model(model, args.load_path, args.gpu_ids)
+    if args.load_model_path:
+        log.info(f'Loading checkpoint from {args.load_model_path}...')
+        model, step = util.load_model(model, args.load_model_path, args.gpu_ids)
     else:
         step = 0
+
+    if args.load_cand_model_path:
+        log.info(f'Loading candidate model checkpoint from {args.load_cand_model_path}...')
+        cand_model, cand_step = util.load_model(cand_model, args.load_cand_model_path, args.gpu_ids)
+    else:
+        cand_step = 0
     model = model.to(device)
     model.train()
     ema = util.EMA(model, args.ema_decay)
