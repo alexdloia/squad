@@ -12,6 +12,7 @@ Author:
 """
 
 import csv
+from multiprocessing.sharedctypes import Value
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -51,6 +52,11 @@ def main(args):
     model = model.to(device)
     model.eval()
 
+    # TODO jonah
+    if args.model == "scr":
+        cand_model = 1 # load_model()
+        raise ValueError("Candidate model not implemented yet")
+
     # Get data loader
     log.info('Building dataset...')
     record_file = vars(args)[f'{args.split}_record_file']
@@ -78,7 +84,18 @@ def main(args):
             batch_size = cw_idxs.size(0)
 
             # Forward
-            log_p1, log_p2 = model(cw_idxs, qw_idxs)
+            if args.model == "scr":
+                if args.mode == "easy":
+                    candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), device, train=True)
+                else:
+                    candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), device, train=False)
+
+                logprob_chunks = model(cw_idxs, qw_idxs, candidates)
+                c_len = cw_idxs[1]
+
+                log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len)
+            else:
+                log_p1, log_p2 = model(cw_idxs, qw_idxs)
             y1, y2 = y1.to(device), y2.to(device)
             loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
             nll_meter.update(loss.item(), batch_size)

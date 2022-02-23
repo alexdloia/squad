@@ -18,6 +18,22 @@ import ujson as json
 
 from collections import Counter
 
+def convert_probs(logprob_chunks, candidates, c_len):
+    """
+        Converts log probabilities of chunks
+        to log_p1, log_p2
+    """
+    batch_size, num_candidates = candidates.size()
+    prob_chunks = logprob_chunks.exp()
+    p1 = torch.zeros(batch_size, c_len)
+    p2 = torch.zeros(batch_size, c_len)
+    for i in range(batch_size):
+        for j in range(num_candidates):
+            p1[i, candidates[i, j, 0]] += prob_chunks[i, j]
+            p2[i, candidates[i, j, 1]] += prob_chunks[i, j]
+
+    return p1.log(), p2.log()
+
 def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device, train=True):
     """Given a candidate model, generate the candidates list for input into the SCr model along with a chunk_y which
     represents the solution index.
@@ -45,15 +61,16 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device
     for i in range(batch_size):
         candidates[i] = get_candidates_full(p1, p2, num_candidates)
 
-        answer_chunk = torch.Tensor([y1[i], y2[i]])
-        chunky = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
-        if len(chunky) > 0:
-            # the correct answer is simply the index where we found the answer
-            chunk_y[i] = chunky[0]
-        else:
-            candidates[i, -1, :] = answer_chunk
-            # the correct answer is where we inserted the answer
-            chunk_y[i] = num_candidates - 1
+        if train: # only supply correct answer during train time
+            answer_chunk = torch.Tensor([y1[i], y2[i]])
+            chunky = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
+            if len(chunky) > 0:
+                # the correct answer is simply the index where we found the answer
+                chunk_y[i] = chunky[0]
+            else:
+                candidates[i, -1, :] = answer_chunk
+                # the correct answer is where we inserted the answer
+                chunk_y[i] = num_candidates - 1
 
     chunk_y = chunk_y.long()
 
@@ -84,7 +101,7 @@ def get_candidates_full(p1, p2, num_candidates):
     candidates[filled_cand] = chunks[torch.argsort(scores, descending=True)[:num_candidates], :]
     return candidates
 
-def get_candidates_simpe(p1, p2, num_candidates):
+def get_candidates_simple(p1, p2, num_candidates):
     candidates = torch.tensor(num_candidates, 2)
     candidates[:, 0] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p1, num_candidates, replacement=True)), dtype=torch.long)
     candidates[:, 1] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p2, num_candidates, replacement=True)), dtype=torch.long)

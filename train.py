@@ -114,16 +114,6 @@ def main(args):
                 batch_size = cw_idxs.size(0)
                 optimizer.zero_grad()
 
-                print("Starting evaluation")
-                results, pred_dict = evaluate(model, dev_loader, device,
-                                                    args.dev_eval_file,
-                                                    args.max_ans_len,
-                                                    args.use_squad_v2,
-                                                    cand_model,
-                                                    args.model == "scr")
-                print("Finished evaluation!")
-
-
                 if args.model == "scr":
 
                     candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), NUM_CANDIDATES, device, train=True)
