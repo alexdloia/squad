@@ -87,8 +87,8 @@ def get_candidates_full(p1, p2, num_candidates):
     # first, we enumerate all possible chunks as in the DCR paper
     c_len = p1.size()[0]
     num_chunks = c_len * (c_len + 1) // 2
-    chunks = torch.tensor(num_chunks, 2)
-    scores = torch.tensor(num_chunks)
+    chunks = torch.zeros(num_chunks, 2)
+    scores = torch.zeros(num_chunks)
     i = 0
     for start in range(c_len):
         for end in range(start, c_len):
