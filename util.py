@@ -77,7 +77,6 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device
     chunk_y = chunk_y.long()
 
     d = time.time() - s
-    print(f"Candidate generation took {d} seconds")
 
     return candidates, chunk_y
 

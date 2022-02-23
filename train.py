@@ -50,7 +50,7 @@ def main(args):
 
     # Get model
     log.info('Building model...')
-    print(f"Running with model {args.model}")
+    log.info(f"Running with model {args.model}")
     if args.model == "scr":
         model = SCR(word_vectors=word_vectors,
                     hidden_size=args.hidden_size,
@@ -71,6 +71,7 @@ def main(args):
         step = 0
 
     if args.load_cand_model_path:
+        cand_model = nn.DataParallel(cand_model, args.gpu_ids)
         log.info(f'Loading candidate model checkpoint from {args.load_cand_model_path}...')
         cand_model, cand_step = util.load_model(cand_model, args.load_cand_model_path, args.gpu_ids)
     else:
@@ -137,8 +138,6 @@ def main(args):
                     y1, y2 = y1.to(device), y2.to(device)
                     loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
                     loss_val = loss.item()
-
-                print("backwards now")
 
                 # Backward
                 loss.backward()
