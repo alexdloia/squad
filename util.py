@@ -18,6 +18,8 @@ import ujson as json
 
 from collections import Counter
 
+import time
+
 def convert_probs(logprob_chunks, candidates, c_len):
     """
         Converts log probabilities of chunks
@@ -49,7 +51,7 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device
     """
     y1, y2 = ys
     batch_size = cw_idxs.size()[0]
-    candidates = torch.zeros(batch_size, num_candidates, 2, dtype=torch.long).to(device)
+    candidates = torch.zeros(batch_size, num_candidates, 2, dtype=torch.long)
     chunk_y = torch.zeros(batch_size).to(device)
     log_p1, log_p2 = cand_model(cw_idxs, qw_idxs)
     p1, p2 = torch.exp(log_p1), torch.exp(log_p2)
@@ -57,9 +59,9 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device
     # y1, y2 = y1.to(device), y2.to(device)
     # cand_loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
     # cand_loss_val = cand_loss.item()
-
+    s = time.time()
     for i in range(batch_size):
-        candidates[i] = get_candidates_full(p1[i], p2[i], num_candidates)
+        g = get_candidates_full(p1[i], p2[i], num_candidates)
 
         if train: # only supply correct answer during train time
             answer_chunk = torch.Tensor([y1[i], y2[i]])
@@ -74,6 +76,9 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device
 
     chunk_y = chunk_y.long()
 
+    d = time.time() - s
+    print(f"Candidate generation took {d} seconds")
+
     return candidates, chunk_y
 
 def get_candidates_full(p1, p2, num_candidates):
@@ -86,24 +91,16 @@ def get_candidates_full(p1, p2, num_candidates):
     """
     # first, we enumerate all possible chunks as in the DCR paper
     c_len = p1.size()[0]
-    num_chunks = c_len * (c_len + 1) // 2
-    chunks = torch.zeros(num_chunks, 2)
-    scores = torch.zeros(num_chunks)
-    i = 0
-    for start in range(c_len):
-        for end in range(start, c_len):
-            chunks[i] = torch.tensor([start, end])
-            scores[i] = p1[start] * p2[end]
-            i += 1
+    num_proposed = num_candidates * 10
+    proposed = torch.zeros(num_proposed, 2, dtype=torch.long)
+    proposed[:, 0] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p1, num_proposed, replacement=True)), dtype=torch.long)
+    proposed[:, 1] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p2, num_proposed, replacement=True)), dtype=torch.long)
+    scores = p1[proposed[:, 0]] * p2[proposed[:, 1]]
 
-    candidates = torch.zeros(num_candidates, 2)
-    filled_cand = min(num_chunks, num_candidates)
-
-    candidates[:filled_cand] = chunks[torch.argsort(scores, descending=True)[:num_candidates], :]
-    return candidates
+    return proposed[torch.argsort(scores, descending=True)[:num_candidates]]
 
 def get_candidates_simple(p1, p2, num_candidates):
-    candidates = torch.tensor(num_candidates, 2)
+    candidates = torch.zeros(num_candidates, 2)
     candidates[:, 0] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p1, num_candidates, replacement=True)), dtype=torch.long)
     candidates[:, 1] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p2, num_candidates, replacement=True)), dtype=torch.long)
     candidates[:, :], _ = torch.sort(candidates, axis=1)

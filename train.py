@@ -24,6 +24,8 @@ from tqdm import tqdm
 from ujson import load as json_load
 from util import collate_fn, SQuAD
 
+import time
+
 NUM_CANDIDATES = 20
 
 def main(args):
@@ -99,6 +101,7 @@ def main(args):
                                  collate_fn=collate_fn)
 
     # Train
+    s = 0
     log.info('Training...')
     steps_till_eval = args.eval_steps
     epoch = step // len(train_dataset)
@@ -115,8 +118,9 @@ def main(args):
                 optimizer.zero_grad()
 
                 if args.model == "scr":
-
+                    print(f"Full loop took {time.time() - s} seconds")
                     candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), NUM_CANDIDATES, device, train=True)
+                    s = time.time()
                     chunk_y.to(device)
 
                     logprob_chunks = model(cw_idxs, qw_idxs, candidates)
@@ -130,6 +134,8 @@ def main(args):
                     y1, y2 = y1.to(device), y2.to(device)
                     loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
                     loss_val = loss.item()
+
+                print("backwards now")
 
                 # Backward
                 loss.backward()
