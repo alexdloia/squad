@@ -85,10 +85,7 @@ def main(args):
 
             # Forward
             if args.model == "scr":
-                if args.mode == "easy":
-                    candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), device, train=True)
-                else:
-                    candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), device, train=False)
+                candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), device, train=False)
 
                 logprob_chunks = model(cw_idxs, qw_idxs, candidates)
                 c_len = cw_idxs[1]
