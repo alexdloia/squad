@@ -59,7 +59,7 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device
     # cand_loss_val = cand_loss.item()
 
     for i in range(batch_size):
-        candidates[i] = get_candidates_full(p1, p2, num_candidates)
+        candidates[i] = get_candidates_full(p1[i], p2[i], num_candidates)
 
         if train: # only supply correct answer during train time
             answer_chunk = torch.Tensor([y1[i], y2[i]])
@@ -93,7 +93,7 @@ def get_candidates_full(p1, p2, num_candidates):
     for start in range(c_len):
         for end in range(start, c_len):
             chunks[i] = torch.tensor([start, end])
-            scores[i] = p1[i, start] * p2[i, end]
+            scores[i] = p1[start] * p2[end]
             i += 1
 
     candidates = torch.zeros(num_candidates, 2)
