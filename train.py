@@ -171,7 +171,6 @@ def main(args):
                                                     args.use_squad_v2,
                                                     cand_model,
                                                     args.model == "scr")
-                        saver.save(step, model, results[args.metric_name], device)
                     else:
                         results, pred_dict = evaluate(model, dev_loader, device,
                                                   args.dev_eval_file,
