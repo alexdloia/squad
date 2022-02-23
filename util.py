@@ -18,6 +18,22 @@ import ujson as json
 
 from collections import Counter
 
+def convert_probs(logprob_chunks, candidates, c_len):
+    """
+        Converts log probabilities of chunks
+        to log_p1, log_p2
+    """
+    batch_size, num_candidates = candidates.size()
+    prob_chunks = logprob_chunks.exp()
+    p1 = torch.zeros(batch_size, c_len)
+    p2 = torch.zeros(batch_size, c_len)
+    for i in range(batch_size):
+        for j in range(num_candidates):
+            p1[i, candidates[i, j, 0]] += prob_chunks[i, j]
+            p2[i, candidates[i, j, 1]] += prob_chunks[i, j]
+
+    return p1.log(), p2.log()
+
 def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device, train=True):
     """Given a candidate model, generate the candidates list for input into the SCr model along with a chunk_y which
     represents the solution index.
@@ -43,25 +59,56 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device
     # cand_loss_val = cand_loss.item()
 
     for i in range(batch_size):
+        candidates[i] = get_candidates_full(p1, p2, num_candidates)
 
-        # for now, random sampling WITH replacement for candidate generation
-        candidates[i, :, 0] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p1[i], num_candidates, replacement=True)), dtype=torch.long)
-        candidates[i, :, 1] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p2[i], num_candidates, replacement=True)), dtype=torch.long)
-        candidates[i, :, :], _ = torch.sort(candidates[i, :, :], axis=1)
-
-        answer_chunk = torch.Tensor([y1[i], y2[i]])
-        chunky = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
-        if len(chunky) > 0:
-            # the correct answer is simply the index where we found the answer
-            chunk_y[i] = chunky[0]
-        else:
-            candidates[i, -1, :] = answer_chunk
-            # the correct answer is where we inserted the answer
-            chunk_y[i] = num_candidates - 1
+        if train: # only supply correct answer during train time
+            answer_chunk = torch.Tensor([y1[i], y2[i]])
+            chunky = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
+            if len(chunky) > 0:
+                # the correct answer is simply the index where we found the answer
+                chunk_y[i] = chunky[0]
+            else:
+                candidates[i, -1, :] = answer_chunk
+                # the correct answer is where we inserted the answer
+                chunk_y[i] = num_candidates - 1
 
     chunk_y = chunk_y.long()
 
     return candidates, chunk_y
+
+def get_candidates_full(p1, p2, num_candidates):
+    """Given the probability of start and end chunks,
+       this function generates candidates in a smarter way than the basic sample with replacement.
+
+    Args:
+        p1 (tensor): (c_len,) tensor of probabilities
+        p2 (tensor): (c_len,) tensor of probabilities
+    """
+    # first, we enumerate all possible chunks as in the DCR paper
+    c_len = p1.size()[0]
+    num_chunks = c_len * (c_len + 1) // 2
+    chunks = torch.tensor(num_chunks, 2)
+    scores = torch.tensor(num_chunks)
+    i = 0
+    for start in range(c_len):
+        for end in range(start, c_len):
+            chunks[i] = torch.tensor([start, end])
+            scores[i] = p1[start] * p2[end]
+
+    candidates = torch.tensor(num_candidates, 2)
+    filled_cand = min(num_chunks, num_candidates)
+
+    candidates[filled_cand] = chunks[torch.argsort(scores, descending=True)[:num_candidates], :]
+    return candidates
+
+def get_candidates_simple(p1, p2, num_candidates):
+    candidates = torch.tensor(num_candidates, 2)
+    candidates[:, 0] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p1, num_candidates, replacement=True)), dtype=torch.long)
+    candidates[:, 1] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p2, num_candidates, replacement=True)), dtype=torch.long)
+    candidates[:, :], _ = torch.sort(candidates, axis=1)
+
+    return candidates
+
 
 def chunk_discretize(prob_chunks, candidates):
     """Discretizes prob_chunks in a way to equal the format of the util function discretize
