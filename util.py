@@ -49,8 +49,8 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device
     """
     y1, y2 = ys
     batch_size = cw_idxs.size()[0]
-    candidates = torch.zeros(batch_size, num_candidates, 2, dtype=torch.long)
-    chunk_y = torch.zeros(batch_size)
+    candidates = torch.zeros(batch_size, num_candidates, 2, dtype=torch.long).to(device)
+    chunk_y = torch.zeros(batch_size).to(device)
     log_p1, log_p2 = cand_model(cw_idxs, qw_idxs)
     p1, p2 = torch.exp(log_p1), torch.exp(log_p2)
     # loss calc only needed for gradient
