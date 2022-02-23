@@ -59,7 +59,6 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device
     # y1, y2 = y1.to(device), y2.to(device)
     # cand_loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
     # cand_loss_val = cand_loss.item()
-    s = time.time()
     for i in range(batch_size):
         candidates[i] = get_candidates_full(p1[i], p2[i], num_candidates)
 
@@ -75,8 +74,6 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device
                 chunk_y[i] = num_candidates - 1
 
     chunk_y = chunk_y.long()
-
-    d = time.time() - s
 
     return candidates, chunk_y
 
