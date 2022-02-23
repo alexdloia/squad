@@ -96,7 +96,7 @@ def get_candidates_full(p1, p2, num_candidates):
             scores[i] = p1[i, start] * p2[i, end]
             i += 1
 
-    candidates = torch.tensor(num_candidates, 2)
+    candidates = torch.zeros(num_candidates, 2)
     filled_cand = min(num_chunks, num_candidates)
 
     candidates[filled_cand] = chunks[torch.argsort(scores, descending=True)[:num_candidates], :]
