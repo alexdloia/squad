@@ -114,11 +114,19 @@ def main(args):
                 batch_size = cw_idxs.size(0)
                 optimizer.zero_grad()
 
+                print("Starting evaluation")
+                results, pred_dict = evaluate(model, dev_loader, device,
+                                                    args.dev_eval_file,
+                                                    args.max_ans_len,
+                                                    args.use_squad_v2,
+                                                    cand_model,
+                                                    args.model == "scr")
+                print("Finished evaluation!")
+
 
                 if args.model == "scr":
 
                     candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), NUM_CANDIDATES, device, train=True)
-                    chunk_y = chunk_y.long()
 
                     logprob_chunks = model(cw_idxs, qw_idxs, candidates)
 
@@ -204,7 +212,6 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_
             cw_idxs = cw_idxs.to(device)
             qw_idxs = qw_idxs.to(device)
             batch_size = cw_idxs.size(0)
-            print(y1)
 
             # Forward
             if chunk:
@@ -217,7 +224,7 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_
 
                 # Get F1 and EM scores
                 prob_chunks = logprob_chunks.exp()
-                starts, ends = util.discretize(prob_chunks, candidates)
+                starts, ends = util.chunk_discretize(prob_chunks, candidates)
             else:
                 log_p1, log_p2 = model(cw_idxs, qw_idxs)
                 y1, y2 = y1.to(device), y2.to(device)

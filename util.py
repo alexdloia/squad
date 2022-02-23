@@ -43,7 +43,6 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device
     # cand_loss_val = cand_loss.item()
 
     for i in range(batch_size):
-            # (batch_size, c_len) -> (c_len,)
 
         # for now, random sampling WITH replacement for candidate generation
         candidates[i, :, 0] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p1[i], num_candidates, replacement=True)), dtype=torch.long)
@@ -59,6 +58,8 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device
             candidates[i, -1, :] = answer_chunk
             # the correct answer is where we inserted the answer
             chunk_y[i] = num_candidates - 1
+
+    chunk_y = chunk_y.long()
 
     return candidates, chunk_y
 
