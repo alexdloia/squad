@@ -93,7 +93,8 @@ def get_candidates_full(p1, p2, num_candidates):
     for start in range(c_len):
         for end in range(start, c_len):
             chunks[i] = torch.tensor([start, end])
-            scores[i] = p1[start] * p2[end]
+            scores[i] = p1[i, start] * p2[i, end]
+            i += 1
 
     candidates = torch.tensor(num_candidates, 2)
     filled_cand = min(num_chunks, num_candidates)
