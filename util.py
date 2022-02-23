@@ -61,7 +61,7 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device
     # cand_loss_val = cand_loss.item()
     s = time.time()
     for i in range(batch_size):
-        g = get_candidates_full(p1[i], p2[i], num_candidates)
+        candidates[i] = get_candidates_full(p1[i], p2[i], num_candidates)
 
         if train: # only supply correct answer during train time
             answer_chunk = torch.Tensor([y1[i], y2[i]])
