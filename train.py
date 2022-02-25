@@ -26,8 +26,6 @@ from util import collate_fn, SQuAD
 
 import time
 
-NUM_CANDIDATES = 20
-
 def main(args):
     # Set up logging and devices
     args.save_dir = util.get_save_dir(args.save_dir, args.name, training=True)
@@ -54,7 +52,7 @@ def main(args):
     if args.model == "scr":
         model = SCR(word_vectors=word_vectors,
                     hidden_size=args.hidden_size,
-                    num_candidates=NUM_CANDIDATES,
+                    num_candidates=util.NUM_CANDIDATES,
                     drop_prob=args.drop_prob).to(device)
         cand_model = BiDAF(word_vectors=word_vectors,
                     hidden_size=args.hidden_size,

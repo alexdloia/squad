@@ -20,6 +20,8 @@ from collections import Counter
 
 import time
 
+NUM_CANDIDATES = 20
+
 def convert_probs(logprob_chunks, candidates, c_len):
     """
         Converts log probabilities of chunks
