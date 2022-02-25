@@ -27,7 +27,7 @@ def convert_probs(logprob_chunks, candidates, c_len):
         Converts log probabilities of chunks
         to log_p1, log_p2
     """
-    batch_size, num_candidates = candidates.size()
+    batch_size, num_candidates, _ = candidates.size()
     prob_chunks = logprob_chunks.exp()
     p1 = torch.zeros(batch_size, c_len)
     p2 = torch.zeros(batch_size, c_len)
