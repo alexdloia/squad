@@ -22,15 +22,15 @@ import time
 
 NUM_CANDIDATES = 20
 
-def convert_probs(logprob_chunks, candidates, c_len):
+def convert_probs(logprob_chunks, candidates, c_len, device):
     """
         Converts log probabilities of chunks
         to log_p1, log_p2
     """
     batch_size, num_candidates, _ = candidates.size()
     prob_chunks = logprob_chunks.exp()
-    p1 = torch.zeros(batch_size, c_len)
-    p2 = torch.zeros(batch_size, c_len)
+    p1 = torch.zeros(batch_size, c_len, device=device)
+    p2 = torch.zeros(batch_size, c_len, device=device)
     for i in range(batch_size):
         for j in range(num_candidates):
             p1[i, candidates[i, j, 0]] += prob_chunks[i, j]
