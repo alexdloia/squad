@@ -56,12 +56,12 @@ def main(args):
     model = nn.DataParallel(model, args.gpu_ids)
     if args.load_model_path:
         log.info(f'Loading checkpoint from {args.load_model_path}...')
-        model, step = util.load_model(model, args.load_model_path, args.gpu_ids)
+        model, step = util.load_model(model, args.load_model_path, gpu_ids)
     else:
         step = 0
 
     if args.load_cand_model_path:
-        cand_model = nn.DataParallel(cand_model, args.gpu_ids)
+        cand_model = nn.DataParallel(cand_model, gpu_ids)
         log.info(f'Loading candidate model checkpoint from {args.load_cand_model_path}...')
         cand_model, cand_step = util.load_model(cand_model, args.load_cand_model_path, args.gpu_ids)
     else:
