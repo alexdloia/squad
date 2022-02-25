@@ -22,7 +22,7 @@ import util
 from args import get_test_args
 from collections import OrderedDict
 from json import dumps
-from models import BiDAF
+from models import BiDAF, SCR
 from os.path import join
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
@@ -44,11 +44,31 @@ def main(args):
 
     # Get model
     log.info('Building model...')
-    model = BiDAF(word_vectors=word_vectors,
-                  hidden_size=args.hidden_size)
-    model = nn.DataParallel(model, gpu_ids)
-    log.info(f'Loading checkpoint from {args.load_path}...')
-    model = util.load_model(model, args.load_path, gpu_ids, return_step=False)
+    if args.model == "scr":
+        model = SCR(word_vectors=word_vectors,
+                    hidden_size=args.hidden_size,
+                    num_candidates=util.NUM_CANDIDATES,
+                    drop_prob=args.drop_prob).to(device)
+        cand_model = BiDAF(word_vectors=word_vectors,
+                           hidden_size=args.hidden_size,
+                           drop_prob=args.drop_prob).to(device)
+    else:
+        model = BiDAF(word_vectors=word_vectors,
+                      hidden_size=args.hidden_size,
+                      drop_prob=args.drop_prob).to(device)
+    model = nn.DataParallel(model, args.gpu_ids)
+    if args.load_model_path:
+        log.info(f'Loading checkpoint from {args.load_model_path}...')
+        model, step = util.load_model(model, args.load_model_path, args.gpu_ids)
+    else:
+        step = 0
+
+    if args.load_cand_model_path:
+        cand_model = nn.DataParallel(cand_model, args.gpu_ids)
+        log.info(f'Loading candidate model checkpoint from {args.load_cand_model_path}...')
+        cand_model, cand_step = util.load_model(cand_model, args.load_cand_model_path, args.gpu_ids)
+    else:
+        cand_step = 0
     model = model.to(device)
     model.eval()
 
