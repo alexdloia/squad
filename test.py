@@ -47,15 +47,12 @@ def main(args):
     if args.model == "scr":
         model = SCR(word_vectors=word_vectors,
                     hidden_size=args.hidden_size,
-                    num_candidates=util.NUM_CANDIDATES,
-                    drop_prob=args.drop_prob).to(device)
+                    num_candidates=util.NUM_CANDIDATES).to(device)
         cand_model = BiDAF(word_vectors=word_vectors,
-                           hidden_size=args.hidden_size,
-                           drop_prob=args.drop_prob).to(device)
+                           hidden_size=args.hidden_size).to(device)
     else:
         model = BiDAF(word_vectors=word_vectors,
-                      hidden_size=args.hidden_size,
-                      drop_prob=args.drop_prob).to(device)
+                      hidden_size=args.hidden_size).to(device)
     model = nn.DataParallel(model, args.gpu_ids)
     if args.load_model_path:
         log.info(f'Loading checkpoint from {args.load_model_path}...')
@@ -74,7 +71,7 @@ def main(args):
 
     # TODO jonah
     if args.model == "scr":
-        cand_model = 1 # load_model()
+        cand_model = 1  # load_model()
         raise ValueError("Candidate model not implemented yet")
 
     # Get data loader
@@ -91,7 +88,7 @@ def main(args):
     log.info(f'Evaluating on {args.split} split...')
     nll_meter = util.AverageMeter()
     pred_dict = {}  # Predictions for TensorBoard
-    sub_dict = {}   # Predictions for submission
+    sub_dict = {}  # Predictions for submission
     eval_file = vars(args)[f'{args.split}_eval_file']
     with open(eval_file, 'r') as fh:
         gold_dict = json_load(fh)
