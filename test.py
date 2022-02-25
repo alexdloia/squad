@@ -102,7 +102,7 @@ def main(args):
                 logprob_chunks = model(cw_idxs, qw_idxs, candidates)
                 c_len = cw_idxs.size()[1]
 
-                log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len)
+                log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, device)
             else:
                 log_p1, log_p2 = model(cw_idxs, qw_idxs)
             y1, y2 = y1.to(device), y2.to(device)
