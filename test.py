@@ -100,7 +100,7 @@ def main(args):
                 candidates, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), util.NUM_CANDIDATES, device, train=False)
 
                 logprob_chunks = model(cw_idxs, qw_idxs, candidates)
-                c_len = cw_idxs[1]
+                c_len = cw_idxs.size()[1]
 
                 log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len)
             else:
