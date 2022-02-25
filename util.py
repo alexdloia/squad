@@ -22,7 +22,7 @@ import time
 
 NUM_CANDIDATES = 20
 
-def convert_probs(logprob_chunks, candidates, c_len, device):
+def convert_probs(logprob_chunks, candidates, c_len, c_mask, device):
     """
         Converts log probabilities of chunks
         to log_p1, log_p2
@@ -36,7 +36,9 @@ def convert_probs(logprob_chunks, candidates, c_len, device):
             p1[i, candidates[i, j, 0]] += prob_chunks[i, j]
             p2[i, candidates[i, j, 1]] += prob_chunks[i, j]
 
-    return p1.log(), p2.log()
+    log_p1 = masked_softmax(p1, c_mask, log_softmax=True)
+    log_p2 = masked_softmax(p2, c_mask, log_softmax=True)
+    return log_p1, log_p2
 
 def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device, train=True):
     """Given a candidate model, generate the candidates list for input into the SCr model along with a chunk_y which

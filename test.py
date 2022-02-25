@@ -101,8 +101,9 @@ def main(args):
 
                 logprob_chunks = model(cw_idxs, qw_idxs, candidates)
                 c_len = cw_idxs.size()[1]
+                c_mask = torch.zeros_like(cw_idxs) != cw_idxs
 
-                log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, device)
+                log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, c_mask, device)
             else:
                 log_p1, log_p2 = model(cw_idxs, qw_idxs)
             y1, y2 = y1.to(device), y2.to(device)
