@@ -14,6 +14,31 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from util import masked_softmax
 
 
+layers.LexiconEncoder(word_vectors=word_vectors,
+                                    hidden_size=hidden_size,
+                                    drop_prob=drop_prob)
+
+        self.context = layers.ContextualEmbedding(input_size=hidden_size,
+                                     hidden_size=hidden_size,
+                                     num_layers=1,
+                                     drop_prob=drop_prob)
+
+        self.memory = layers.MemoryGeneration(hidden_size=hidden_size,
+                                     num_layers=1,
+                                     drop_prob=drop_prob)
+
+        self.answer = layers.AnswerModule(hidden_size=hidden_size,
+                                     num_layers=1,
+                                     drop_prob=drop_prob)
+
+class LexiconEncoder(nn.Module):
+    def __init__(self, hidden_size, drop_prob):
+        self.hidden_size = hidden_size
+        self.drop_prob = drop_prob
+
+    def forward(self, x):
+
+
 class CustomEmbedding(nn.Module):
     """Embedding layer used by DCR
 
@@ -472,15 +497,15 @@ if __name__ == "__main__":
                     candidates (batch_size x num_candidates x 2) tensor
                     hq (batch_size, q_len, 2d) tensor
                     q_mask : mask on q, (batch_size x q_len) mask - I think?
-    
+
                     Let b = |Q|
                     P[c(m , n)] = softmax(\gamma(m, n) * [hq_b (forward) ; hq_1 (backward)])
-    
+
                     When training, we try to minimize:
-    
+
                     L = - \sum (training examples) log (A | P, Q)
                     Where A is the correct answer chunk.
-    
+
                     ONLY train on examples where the correct answer is a candidate chunk!!
                 """
         rank = RankerLayer()
