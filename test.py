@@ -47,35 +47,27 @@ def main(args):
     if args.model == "scr":
         model = SCR(word_vectors=word_vectors,
                     hidden_size=args.hidden_size,
-                    num_candidates=util.NUM_CANDIDATES,
-                    drop_prob=args.drop_prob).to(device)
+                    num_candidates=util.NUM_CANDIDATES).to(device)
         cand_model = BiDAF(word_vectors=word_vectors,
-                           hidden_size=args.hidden_size,
-                           drop_prob=args.drop_prob).to(device)
+                           hidden_size=args.hidden_size).to(device)
     else:
         model = BiDAF(word_vectors=word_vectors,
-                      hidden_size=args.hidden_size,
-                      drop_prob=args.drop_prob).to(device)
-    model = nn.DataParallel(model, args.gpu_ids)
+                      hidden_size=args.hidden_size).to(device)
+    model = nn.DataParallel(model, gpu_ids)
     if args.load_model_path:
         log.info(f'Loading checkpoint from {args.load_model_path}...')
-        model, step = util.load_model(model, args.load_model_path, args.gpu_ids)
+        model, step = util.load_model(model, args.load_model_path, gpu_ids)
     else:
         step = 0
 
     if args.load_cand_model_path:
-        cand_model = nn.DataParallel(cand_model, args.gpu_ids)
+        cand_model = nn.DataParallel(cand_model, gpu_ids)
         log.info(f'Loading candidate model checkpoint from {args.load_cand_model_path}...')
-        cand_model, cand_step = util.load_model(cand_model, args.load_cand_model_path, args.gpu_ids)
+        cand_model, cand_step = util.load_model(cand_model, args.load_cand_model_path, gpu_ids)
     else:
         cand_step = 0
     model = model.to(device)
     model.eval()
-
-    # TODO jonah
-    if args.model == "scr":
-        cand_model = 1 # load_model()
-        raise ValueError("Candidate model not implemented yet")
 
     # Get data loader
     log.info('Building dataset...')
@@ -91,7 +83,7 @@ def main(args):
     log.info(f'Evaluating on {args.split} split...')
     nll_meter = util.AverageMeter()
     pred_dict = {}  # Predictions for TensorBoard
-    sub_dict = {}   # Predictions for submission
+    sub_dict = {}  # Predictions for submission
     eval_file = vars(args)[f'{args.split}_eval_file']
     with open(eval_file, 'r') as fh:
         gold_dict = json_load(fh)
@@ -105,12 +97,13 @@ def main(args):
 
             # Forward
             if args.model == "scr":
-                candidates, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), device, train=False)
+                candidates, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), util.NUM_CANDIDATES, device, train=False)
 
                 logprob_chunks = model(cw_idxs, qw_idxs, candidates)
-                c_len = cw_idxs[1]
+                c_len = cw_idxs.size()[1]
+                c_mask = torch.zeros_like(cw_idxs) != cw_idxs
 
-                log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len)
+                log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, c_mask, device)
             else:
                 log_p1, log_p2 = model(cw_idxs, qw_idxs)
             y1, y2 = y1.to(device), y2.to(device)
