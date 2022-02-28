@@ -13,31 +13,164 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from util import masked_softmax
 
-
-layers.LexiconEncoder(word_vectors=word_vectors,
-                                    hidden_size=hidden_size,
-                                    drop_prob=drop_prob)
-
-        self.context = layers.ContextualEmbedding(input_size=hidden_size,
-                                     hidden_size=hidden_size,
-                                     num_layers=1,
-                                     drop_prob=drop_prob)
-
-        self.memory = layers.MemoryGeneration(hidden_size=hidden_size,
-                                     num_layers=1,
-                                     drop_prob=drop_prob)
-
-        self.answer = layers.AnswerModule(hidden_size=hidden_size,
-                                     num_layers=1,
-                                     drop_prob=drop_prob)
-
 class LexiconEncoder(nn.Module):
-    def __init__(self, hidden_size, drop_prob):
+    def __init__(self, hidden_size, drop_prob, word_vectors):
+        super(LexiconEncoder, self).__init__()
         self.hidden_size = hidden_size
+        self.drop_prob = drop_prob
+        self.embed = nn.Embedding.from_pretrained(word_vectors)
+
+    def forward(self, x, pw_idxs, qw_idxs, p_mask, q_mask):
+        # step 1: embed x
+        embed = self.embed(x) # (batch_size, p_len, embed_size)
+
+        # step 2: get POS tagging for x
+        # pos = POS_tagging(x) # (batch_size, p_len, 9)
+
+        # step 3: get NER embedding for x
+        # ner = NER(x) # (batch_size, p_len, 9)
+
+        # step 4: get binary exact match feature
+        # this feature is 3 dimensions for 3 kinds of matching between the pw_idxs and the qw_idxs
+        # bem = BEM(x, pq_idxs, qw_idxs) # (batch_size, p_len, 3))
+        # remember that p_mask is a mask over what words are actually there!!
+
+        # step 5: get question-enhanced word embedding. requires some math
+        # Define f_align(p_i) = sum(gamma[i, j] * g(GLOVE(q_j) for j in range(qi_len)
+        # g(.) is a 280-dimensional single layer g(x) = ReLU(W_0 x)
+        # gamma[i, j] = (g(GLOVE(p_i)) * g(GLOVE(q_j))).exp() / sum(np.exp(g(GLOVE(p_i)) * g(GLOVE(q_j))) for j in range(qi_len))
+        # remember that the length of q is variable based on q_mask
+
+        # align = f_align(p_i) for i in p_len for b in batch_size (batch_size, p_len, 280)
+
+        # R_p = torch.concat(embed, align, pos, ner, bem)
+
+        # return R_P
+
+class ContextualEmbedding(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, drop_prob):
+        super(ContextualEmbedding, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
         self.drop_prob = drop_prob
 
     def forward(self, x):
+        # given x (batch_size, hidden_size, seq_len)
 
+        # the paper used a pretrained BiLSTM, guess we need to replace this with something
+        # for now, we can just train our own BiLSTM?
+        # see BiDAF / SCR for an example
+
+        # return r (batch_size, 2 * hidden_size, seq_len)
+        pass
+
+class SANFeedForward(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, drop_prob):
+        super(SANFeedForward, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.drop_prob = drop_prob
+        self.W_1 = nn.Linear(input_size, hidden_size, bias=True)
+        if num_layers == 2:
+            self.W_2 = nn.Linear(hidden_size, hidden_size)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        x = self.W_1(x)
+        x = self.relu(x)
+        if self.num_layers == 2:
+            x = self.W_2(x)
+        return x
+
+class MemoryGeneration(nn.Module):
+    def __init__(self, hidden_size, num_layers, drop_prob):
+        super(MemoryGeneration, self).__init__()
+        self.hidden_size = hidden_size
+        self.drop_prob = drop_prob
+        self.num_layers = num_layers
+        self.ffn_q = SANFeedForward(2 * hidden_size, hidden_size, 1, drop_prob)
+        self.ffn_p = SANFeedForward(2 * hidden_size, hidden_size, 1, drop_prob)
+        self.dropout = nn.Dropout(drop_prob)
+        # I think this is the right LSTM, but not sure
+        # self.lstm = nn.LSTM(8 * hidden_size, hidden_size, num_layers, batch_first=True, bidirectional=True, dropout=drop_prob if num_layers > 1 else 0.)
+
+
+    def forward(self, H_p, H_q, p_mask, q_mask):
+        # construct working memory summary of information from P and Q
+        H_qhat = self.ffn_q(H_q) # (batch_size, hidden_size, q_len) I think
+        H_phat = self.ffn_p(H_p) # (batch_size, hidden_size, q_len) I think
+
+        # att = f_attention(H_qhat, H_phat) # attention from https://arxiv.org/pdf/1706.03762.pdf
+        # I think that this is just softmax(Q @ K^T / sqrt(d_k)) @ V for query, key, value
+
+        # C = self.dropout(att)
+
+        # U_p = concat(H_p, H_q @ C) (batch_size, 4 * hidden_size, p_len)
+        # U_phat = f_attention(U_p, U_p)
+        # U_phat[diagonal] = 0 # zero out all the values on the diagonal. torch.diagonal might help
+        # U_phat = U_p @ U_phat
+
+        # U = concat(U_p, U_phat)
+
+        # M = self.lstm(U)
+
+        # return M
+
+class AnswerModule(nn.Module):
+    def __init__(self, hidden_size, drop_prob, T):
+        super(AnswerModule, self).__init__()
+        self.hidden_size = hidden_size
+        self.drop_prob = drop_prob
+        self.T = T
+        self.W_4 = nn.Parameter(torch.zeros(2 * hidden_size, hidden_size)) # might be 2 * hidden_size output for some of these...
+        self.W_5 = nn.Parameter(torch.zeros(2 * hidden_size, hidden_size))
+        self.W_6 = nn.Parameter(torch.zeros(2 * hidden_size, hidden_size))
+        self.W_7 = nn.Parameter(torch.zeros(2 * hidden_size, hidden_size))
+        # idk the input sizes to this GRU
+        self.gru = nn.GRU(2 * hidden_size, 2 * hidden_size, num_layers=1,
+                          batch_first=True,
+                          bidirectional=True,
+                          dropout=drop_prob)
+
+    def forward(self, H_p, H_q, M, p_mask, q_mask):
+        # answer module computes over T memory steps and outputs answer span
+        batch_size, d_2, q_len = H_q.size()
+        _, _, p_len = H_p.size()
+
+        # might want to swap to be (batch_size, T, ...) for these arrays... idk
+        s = torch.zeros(self.T, batch_size, 2 * self.hidden_size, q_len)
+        p1 = torch.zeros(self.T, batch_size, p_len)
+        p2 = torch.zeros(self.T, batch_size, p_len)
+        # BELOW IS NOT VECTORIZED for batches yet!!!
+        # s[0] = sum(alpha[j] * H_q[:, :, j]) along axis 0 I think (don't sum between batches)
+        # alpha[j] = exp(self.W_4 @ H_q[j]) / sum(exp(W_4 @ H_q[j]) for j in range(q_len))
+
+        # at time step t = 1, 2, ... T_1:
+        # x_t = sum(beta[j] * M[j])
+        # beta[j] = softmax(s[t-1] @ self.W_6 @ M)
+
+        # s[t] = self.gru(s[t-1], x[t]
+        #
+
+
+        # Finally, we get our probability distributions
+
+        # p1[t] = softmax(s[t] @ self.W_6 @ M)
+        # s2_t = concat(s[t], sum(p1[t, j] M[j] over j))
+        # p2[t] = softmax(s2_t @ self.W_7 @ M)
+
+        # if training, randomly decide NOT to average over a given time step
+        # with probability self.drop_prob (0.4)
+        # but make sure that at least one time step IS chosen.
+        # see paper for example
+
+        # test time, this is pretty straightforward
+        # p1 = mean(p1, axis=Time) # take the mean over the time axis to get our resultant distribution
+        # p2 = mean(p2, axis=Time)
+
+        # return p1.log(), p2.log() # return as log probabilities for their code scaffolding
 
 class CustomEmbedding(nn.Module):
     """Embedding layer used by DCR

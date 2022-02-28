@@ -35,9 +35,23 @@ class SAN(nn.Module):
                                     hidden_size=hidden_size,
                                     drop_prob=drop_prob)
 
+        self.embed = layers.Embedding(word_vectors=word_vectors,
+                            hidden_size=hidden_size,
+                            drop_prob=drop_prob)
+
         self.context = layers.ContextualEmbedding(input_size=hidden_size,
                                      hidden_size=hidden_size,
                                      num_layers=1,
+                                     drop_prob=drop_prob)
+
+        self.ffn_p = layers.SANFeedForward(input_size=600,
+                                     hidden_size=hidden_size,
+                                     num_layers=2,
+                                     drop_prob=drop_prob)
+
+        self.ffn_q = layers.SANFeedForward(input_size=300,
+                                     hidden_size=hidden_size,
+                                     num_layers=2,
                                      drop_prob=drop_prob)
 
         self.memory = layers.MemoryGeneration(hidden_size=hidden_size,
@@ -57,8 +71,11 @@ class SAN(nn.Module):
 
         p_len, q_len = p_mask.sum(-1), q_mask.sum(-1)
 
-        E_p = self.encode(pw_idxs)         # (batch_size, hidden_size, p_len)
-        E_q = self.encode(qw_idxs)         # (batch_size, hidden_size, q_len)
+        R_p = self.encode(pw_idxs, pw_idxs, qw_idxs, p_mask, q_mask)         # (batch_size, 600, p_len)
+        R_q = self.embed(qw_idxs)         # (batch_size, 300, q_len)
+
+        E_p = self.ffn_p(R_p) # (batch_size, 600, p_len) -> (batch_size, hidden_size, p_len) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
+        E_q = self.ffn_q(R_q) # (batch_size, 300, q_len) -> (batch_size, hidden_size, q_len) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
 
         H_p = self.context(E_p, p_mask) # (batch_size. 2 * hidden_size, p_len)
         H_q = self.context(E_q, q_mask) # (batch_size. 2 * hidden_size, q_len)
