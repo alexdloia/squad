@@ -5,6 +5,7 @@ Author:
 """
 
 from multiprocessing.sharedctypes import Value
+from random import randrange
 from turtle import backward
 import torch
 import torch.nn as nn
@@ -12,6 +13,8 @@ import torch.nn.functional as F
 
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from util import masked_softmax
+
+from torch.distributions.bernoulli import Bernoulli
 
 class LexiconEncoder(nn.Module):
     def __init__(self, hidden_size, drop_prob, word_vectors):
@@ -28,7 +31,7 @@ class LexiconEncoder(nn.Module):
         # pos = POS_tagging(x) # (batch_size, p_len, 9)
 
         # step 3: get NER embedding for x
-        # ner = NER(x) # (batch_size, p_len, 9)
+        # ner = NER(x) # (batch_size, p_len, 8)
 
         # step 4: get binary exact match feature
         # this feature is 3 dimensions for 3 kinds of matching between the pw_idxs and the qw_idxs
@@ -72,16 +75,18 @@ class SANFeedForward(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.drop_prob = drop_prob
-        self.W_1 = nn.Linear(input_size, hidden_size, bias=True)
+        self.W_1 = nn.Linear(hidden_size, input_size, bias=True)
         if num_layers == 2:
             self.W_2 = nn.Linear(hidden_size, hidden_size)
         self.relu = nn.ReLU()
 
     def forward(self, x):
-        x = self.W_1(x)
+        # x (B, a, b)
+        # w_1 (d, a)
+        x = torch.einsum('di,bie->bde', (self.W_1, x)) # self.W_1(x)
         x = self.relu(x)
         if self.num_layers == 2:
-            x = self.W_2(x)
+            x = torch.einsum('dd,bde->bde', (self.W_2, x)) # self.W_2(x)
         return x
 
 class MemoryGeneration(nn.Module):
@@ -124,38 +129,63 @@ class AnswerModule(nn.Module):
         self.hidden_size = hidden_size
         self.drop_prob = drop_prob
         self.T = T
-        self.W_4 = nn.Parameter(torch.zeros(2 * hidden_size, hidden_size)) # might be 2 * hidden_size output for some of these...
-        self.W_5 = nn.Parameter(torch.zeros(2 * hidden_size, hidden_size))
-        self.W_6 = nn.Parameter(torch.zeros(2 * hidden_size, hidden_size))
-        self.W_7 = nn.Parameter(torch.zeros(2 * hidden_size, hidden_size))
+        self.W_4 = nn.Parameter(torch.zeros(2 * hidden_size))
+        self.W_5 = nn.Parameter(torch.zeros(2 * hidden_size, 2 * hidden_size)) # might be 2 * hidden_size output for some of these...
+        self.W_6 = nn.Parameter(torch.zeros(2 * hidden_size, 2 * hidden_size))
+        self.W_7 = nn.Parameter(torch.zeros(2 * hidden_size, 2 * hidden_size))
         # idk the input sizes to this GRU
         self.gru = nn.GRU(2 * hidden_size, 2 * hidden_size, num_layers=1,
                           batch_first=True,
-                          bidirectional=True,
+                          bidirectional=False,
                           dropout=drop_prob)
 
-    def forward(self, H_p, H_q, M, p_mask, q_mask):
+    def forward(self, H_p, H_q, M, train, p_mask, q_mask):
         # answer module computes over T memory steps and outputs answer span
         batch_size, d_2, q_len = H_q.size()
         _, _, p_len = H_p.size()
 
         # might want to swap to be (batch_size, T, ...) for these arrays... idk
-        s = torch.zeros(self.T, batch_size, 2 * self.hidden_size, q_len)
+        s = torch.zeros(self.T, batch_size, 2 * self.hidden_size)
         p1 = torch.zeros(self.T, batch_size, p_len)
         p2 = torch.zeros(self.T, batch_size, p_len)
         # BELOW IS NOT VECTORIZED for batches yet!!!
+
+        # H_q (batch_size, 2 * hidden_size, q_len)
+        # M (batch_size, 2 * hidden_size, p_len)
         # s[0] = sum(alpha[j] * H_q[:, :, j]) along axis 0 I think (don't sum between batches)
-        # alpha[j] = exp(self.W_4 @ H_q[j]) / sum(exp(W_4 @ H_q[j]) for j in range(q_len))
+        # # sum parameters along the hidden size layer (our w_4 parameter)
+        alpha = torch.softmax(torch.einsum('bhq,h->bq', (H_q, self.W_4)), dim=1) # exp(w_4 H_q_j) for each j, batch
+        # alpha has shape (batch_size, q_len)
+        s[0] = torch.einsum('bhq,bq->bh', (alpha, H_q)) # sum_j \alpha_j (H_q)_j for each batch
 
         # at time step t = 1, 2, ... T_1:
         # x_t = sum(beta[j] * M[j])
-        # beta[j] = softmax(s[t-1] @ self.W_6 @ M)
-
-        # s[t] = self.gru(s[t-1], x[t]
         #
 
+        # s[t] = self.gru(s[t-1], x[t]
+        for t in range(1, self.T):
+            # beta[j] = softmax(s[t-1] @ self.W_6 @ M)
+            W5M = torch.einsum('dd,bdn->bdn',(self.W_5, M))
+            beta = torch.softmax((), dim=1) # softmax across the non-batch dimension (batch_size, 2 * hidden_size)
+            x = torch.einsum('bn,dn->bd', (beta, M)) # sum beta_j M_j for all j, all batch (batch_size, 2 * hidden_size)
+            s[t] = self.gru(torch.unsqueeze(s[t-1], 1), torch.unsqueeze(x, 0))
 
         # Finally, we get our probability distributions
+
+        if self.training: # dropout during training
+            chosen_t = torch.zeros(p_len)
+            bernoulli = Bernoulli(torch.tensor([self.drop_prob] * p_len))
+            while sum(chosen_t) == 0: # while no time step are chosen, rechoose
+                chosen_t = bernoulli.sample()
+        else:
+            chosen_t = torch.ones(p_len)
+
+        for t in range(self.T):
+            if not chosen_t[t]:
+                continue
+
+            W6M = self.W_6 @ M
+            p1[t] = torch.softmax(torch.einsum('bd,dn->bdn', (s[t], W6M)), dim=1)
 
         # p1[t] = softmax(s[t] @ self.W_6 @ M)
         # s2_t = concat(s[t], sum(p1[t, j] M[j] over j))
