@@ -15,12 +15,106 @@ import torch.utils.data as data
 import tqdm
 import numpy as np
 import ujson as json
+import spacy
 
 from collections import Counter
 
 import time
 
 NUM_CANDIDATES = 20
+
+word2idx = json.load(open("./data/word2idx.json", "r"))
+idx2word = {v: k for k, v in word2idx.items()}
+nlp = spacy.load("en_core_web_sm")
+# POS tagging
+tag_list = nlp.get_pipe("tagger").labels
+tag2idx = {tag: idx for idx, tag in enumerate(tag_list)}
+
+def indices_to_pos_one_hot(idxs, mask):
+    """
+
+    Args:
+        idxs: torch.Tensor (batch_size, seq_len)
+        mask: torch.Tensor (batch_size, seq_len)
+
+    Returns: POS one hots
+    """
+    batch_size, seq_len = idxs.size()
+    sent_lens = mask.long().argmin(dim=-1) # (batch_size,)
+    one_hots = idxs.new_zeros((batch_size, seq_len)) # maintain device
+    for b_idx in range(batch_size):
+        sent_len = sent_lens[b_idx]
+        sent_idxs = idxs[b_idx, :sent_len] # (sent_len,)
+        sent = " ".join([idx2word[sent_idxs[i]] for i in range(sent_len)])
+        doc = nlp(sent)
+        tag_idxs = idxs.new_full((seq_len,), tag2idx['XX'])
+        tag_idxs[:sent_len] = idxs.new_tensor([tag2idx[tok.tag_] for tok in doc])
+        one_hots[b_idx, :] = tag_idxs
+
+    return F.one_hot(one_hots, num_classes=len(tag_list))
+
+# NER
+ent_list = [name[:2] for name in nlp.entity.move_names[:18]] + ['O']
+ent2idx = {ent: idx for idx, ent in enumerate(ent_list)}
+
+def indices_to_ner_one_hot(idxs, mask):
+    """
+
+    Args:
+        idxs: torch.Tensor (batch_size, seq_len)
+        mask: torch.Tensor (batch_size, seq_len)
+
+    Returns: NER one hots
+    """
+    batch_size, seq_len = idxs.size()
+    sent_lens = mask.long().argmin(dim=-1) # (batch_size,)
+    one_hots = idxs.new_zeros((batch_size, seq_len)) # maintain device
+    for b_idx in range(batch_size):
+        sent_len = sent_lens[b_idx]
+        sent_idxs = idxs[b_idx, :sent_len] # (sent_len,)
+        sent = " ".join([idx2word[sent_idxs[i]] for i in range(sent_len)])
+        doc = nlp(sent)
+        ent_idxs = idxs.new_full((seq_len,), ent2idx['O'])
+        ent_idxs[:sent_len] = idxs.new_tensor([ent2idx[tok.ent_type_] for tok in doc])
+        one_hots[b_idx, :] = ent_idxs
+
+    return F.one_hot(one_hots, num_classes=len(ent_list))
+
+def get_binary_exact_match_features(pw_idxs, qw_idxs, p_mask, q_mask):
+    """
+
+    Args:
+        pw_idxs: torch.Tensor (batch_size, p_len)
+        qw_idxs: torch.Tensor (batch_size, q_len)
+        p_mask: torch.Tensor (batch_size, p_len)
+        q_mask: torch.Tensor (batch_size, q_len)
+
+    Returns: binary_exact_match_features (batch_size, p_len, 3)
+
+    """
+    batch_size, p_len = pw_idxs.size()
+    p_sent_lens = p_mask.long().argmin(dim=-1) # (batch_size,)
+    q_sent_lens = q_mask.long().argmin(dim=-1) # (batch_size,)
+    binary_exact_match_features = pw_idxs.new_zeros((batch_size, p_len, 3)).long()
+    for b_idx in range(batch_size):
+        p_sent_len = p_sent_lens[batch_size]
+        q_sent_len = q_sent_lens[batch_size]
+        p_sent_idxs = pw_idxs[b_idx, :p_sent_len]
+        p_words = [idx2word[p_sent_idxs[i]] for i in range(p_sent_len)]
+        q_sent_idxs = qw_idxs[b_idx, :q_sent_len]
+        q_sent = "".join([idx2word[q_sent_idxs[i]] for i in range(q_sent_len)])
+        qdoc = nlp(q_sent)
+        p_bools = pw_idxs.new_full((p_sent_len, 3), False, dtype=torch.bool)
+        for tok in qdoc:
+            orig = pw_idxs.new_tensor([word == tok.text for word in p_words], dtype=torch.bool)
+            lower = pw_idxs.new_tensor([word == tok.text.lower() for word in p_words], dtype=torch.bool)
+            lemma = pw_idxs.new_tensor([word == tok.lemma_ for word in p_words], dtype=torch.bool)
+            stacked = torch.stack((orig, lower, lemma), dim=-1)
+            p_bools = p_bools | stacked
+        binary_exact_match_features[b_idx, :p_sent_len, :] = p_bools.long()
+
+    return binary_exact_match_features
+
 
 def convert_probs(logprob_chunks, candidates, c_len, c_mask, device):
     """

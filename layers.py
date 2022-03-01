@@ -11,7 +11,47 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+
+import util
 from util import masked_softmax
+
+class POSTagging(nn.Module):
+    def __init__(self, emb_size):
+        super(POSTagging, self).__init__()
+        self.emb_size = emb_size
+        self.map = nn.Linear(len(util.tag_list), emb_size)
+
+    def forward(self, idxs, mask):
+        """
+
+        Args:
+            idxs: (batch_size, seq_len)
+            mask: (batch_size, seq_len)
+
+        Returns: POS embedding
+
+        """
+        one_hots = util.indices_to_pos_one_hot(idxs, mask)
+        return self.map(one_hots)
+
+class NER(nn.Module):
+    def __init__(self, emb_size):
+        super(NER, self).__init__()
+        self.emb_size = emb_size
+        self.map = nn.Linear(len(util.tag_list), emb_size)
+
+    def forward(self, idxs, mask):
+        """
+
+        Args:
+            idxs: (batch_size, seq_len)
+            mask: (batch_size, seq_len)
+
+        Returns: POS embedding
+
+        """
+        one_hots = util.indices_to_ner_one_hot(idxs, mask)
+        return self.map(one_hots)
 
 class LexiconEncoder(nn.Module):
     def __init__(self, hidden_size, drop_prob, word_vectors):
@@ -19,33 +59,41 @@ class LexiconEncoder(nn.Module):
         self.hidden_size = hidden_size
         self.drop_prob = drop_prob
         self.embed = nn.Embedding.from_pretrained(word_vectors)
+        self.w0 = nn.Linear(300, 280, bias=False)
+        self.g_func = nn.Sequential(nn.Linear(300, 280, bias=False), nn.ReLU())
 
     def forward(self, x, pw_idxs, qw_idxs, p_mask, q_mask):
-        # step 1: embed x
+        # step 1: embed x (batch_size, p_len)
         embed = self.embed(x) # (batch_size, p_len, embed_size)
 
         # step 2: get POS tagging for x
-        # pos = POS_tagging(x) # (batch_size, p_len, 9)
+        pos = POSTagging(9)(x) # (batch_size, p_len, 9)
 
         # step 3: get NER embedding for x
-        # ner = NER(x) # (batch_size, p_len, 9)
+        ner = NER(8)(x) # (batch_size, p_len, 8)
 
         # step 4: get binary exact match feature
         # this feature is 3 dimensions for 3 kinds of matching between the pw_idxs and the qw_idxs
-        # bem = BEM(x, pq_idxs, qw_idxs) # (batch_size, p_len, 3))
+        bem = util.get_binary_exact_match_features(pw_idxs, qw_idxs, p_mask, q_mask) # (batch_size, p_len, 3)
         # remember that p_mask is a mask over what words are actually there!!
 
         # step 5: get question-enhanced word embedding. requires some math
-        # Define f_align(p_i) = sum(gamma[i, j] * g(GLOVE(q_j) for j in range(qi_len)
+        # Define f_align(p_i) = sum(gamma[i, j] * g(GLOVE(q_j)) for j in range(qi_len)
         # g(.) is a 280-dimensional single layer g(x) = ReLU(W_0 x)
         # gamma[i, j] = (g(GLOVE(p_i)) * g(GLOVE(q_j))).exp() / sum(np.exp(g(GLOVE(p_i)) * g(GLOVE(q_j))) for j in range(qi_len))
         # remember that the length of q is variable based on q_mask
-
+        q_embed = self.embed(qw_idxs) # (batch_size, q_len, embed_size)
+        # gammas (batch_size, p_len, q_len)
+        g_p = self.g_func(embed) # (batch_size, p_len, 280)
+        g_q = self.g_func(q_embed) # (batch_size, q_len, 280)
+        pregammas = torch.bmm(g_p, g_q.transpose(1, 2)) # (batch_size, p_len, q_len)
+        gammas = F.softmax(pregammas, dim=-1)
         # align = f_align(p_i) for i in p_len for b in batch_size (batch_size, p_len, 280)
+        align = torch.bmm(gammas, g_q) # (batch_size, p_len, 280)
 
-        # R_p = torch.concat(embed, align, pos, ner, bem)
+        R_p = torch.cat((embed, align, pos, ner, bem), dim=-1)
 
-        # return R_P
+        return R_p
 
 class ContextualEmbedding(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, drop_prob):
@@ -394,7 +442,7 @@ class RankerLayer(nn.Module):
 
         batch_size, q_len, t = hq.size()
         d = t // 2
-        q_last_indices = q_mask.long().argmin(dim=-1) - 1
+        q_last_indices = q_mask.long().argmin(dim=-1) - 1 # (batch_size,)
         last_forwards_hq = hq[torch.arange(batch_size), q_last_indices, :d]  # batch_size x d
         first_backwards_hq = hq[:, 0, d:].squeeze(1)
         H = torch.cat((last_forwards_hq, first_backwards_hq), dim=-1).unsqueeze(-1)  # batch_size x 2d x 1
