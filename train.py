@@ -18,7 +18,7 @@ import util
 from args import get_train_args
 from collections import OrderedDict
 from json import dumps
-from models import BiDAF, SCR
+from models import BiDAF, SCR, SAN
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from ujson import load as json_load
@@ -58,10 +58,11 @@ def main(args):
         cand_model = BiDAF(word_vectors=word_vectors,
                     hidden_size=args.hidden_size,
                     drop_prob=args.drop_prob).to(device)
-    else:
-        model = BiDAF(word_vectors=word_vectors,
+    elif args.model == 'san':
+        model = SAN(word_vectors=word_vectors,
                     hidden_size=args.hidden_size,
-                    drop_prob=args.drop_prob).to(device)
+                    drop_prob=args.drop_prob,
+                    T=5).to(device)
     model = nn.DataParallel(model, args.gpu_ids)
     if args.load_model_path:
         log.info(f'Loading checkpoint from {args.load_model_path}...')

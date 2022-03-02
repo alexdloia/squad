@@ -27,7 +27,7 @@ class SAN(nn.Module):
         hidden_size (int): Number of features in the hidden state at each layer.
         drop_prob (float): Dropout probability.
     """
-    def __init__(self, word_vectors, hidden_size=128, drop_prob=0.4):
+    def __init__(self, word_vectors, hidden_size=128, drop_prob=0.4, T=5):
         super(SAN, self).__init__()
         self.hidden_size = hidden_size
 
@@ -59,28 +59,25 @@ class SAN(nn.Module):
                                      drop_prob=drop_prob)
 
         self.answer = layers.AnswerModule(hidden_size=hidden_size,
-                                     num_layers=1,
-                                     drop_prob=drop_prob)
+                                     drop_prob=drop_prob, T=T)
 
     def forward(self, pw_idxs, qw_idxs):
 
         p_mask = torch.zeros_like(pw_idxs) != pw_idxs # (batch_size, p_len)
         q_mask = torch.zeros_like(qw_idxs) != qw_idxs # (batch_size, q_len())
 
-        # raise ValueError("Untested code below this point")
-
         p_len, q_len = p_mask.sum(-1), q_mask.sum(-1)
 
         R_p = self.encode(pw_idxs, pw_idxs, qw_idxs, p_mask, q_mask)         # (batch_size, 600, p_len)
         R_q = self.embed(qw_idxs)         # (batch_size, 300, q_len)
 
-        E_p = self.ffn_p(R_p) # (batch_size, 600, p_len) -> (batch_size, hidden_size, p_len) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
-        E_q = self.ffn_q(R_q) # (batch_size, 300, q_len) -> (batch_size, hidden_size, q_len) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
+        E_p = self.ffn_p(R_p) # (batch_size, 600, p_len) -> (batch_size, p_len, hidden_size) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
+        E_q = self.ffn_q(R_q) # (batch_size, 300, q_len) -> (batch_size, p_len, hidden_size) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
 
-        H_p = self.context(E_p, p_mask) # (batch_size. 2 * hidden_size, p_len)
-        H_q = self.context(E_q, q_mask) # (batch_size. 2 * hidden_size, q_len)
+        H_p = self.context(E_p, p_mask) # (batch_size. q_len, 2 * hidden_size)
+        H_q = self.context(E_q, q_mask) # (batch_size. p_len, 2 * hidden_size)
 
-        M = self.memory(H_p, H_q, p_mask, q_mask) # (batch_size, 2 * hidden_size, p_len) I think, BiLSTM applied to a (batch_size, 8 * hidden_size, p_len) matrix
+        M = self.memory(H_p, H_q, p_mask, q_mask) # (batch_size, p_len, 2 * hidden_size)
 
         # at least one step of the answer module MUST be active during training.
         p1, p2 = self.answer(H_p, H_q, M, p_mask, q_mask) # 2 tensors each of shape (batch_size, p_len)
