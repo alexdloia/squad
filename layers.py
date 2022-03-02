@@ -149,7 +149,8 @@ class DotProductAttention(nn.Module):
         Qkey = self.relu(self.Qkey(H_qhat)) # shape (batch_size, q_len, hidden_size)
         # print(P.shape)
         # print(Qkey.shape)
-        C = masked_softmax(torch.matmul(Qkey, torch.transpose(P, 1, 2)), dim=1, mask=q_mask) # shape (batch_size, q_len, p_len)
+        a = torch.matmul(Qkey, torch.transpose(P, 1, 2))
+        C = masked_softmax(a, dim=1, mask=q_mask) # shape (batch_size, q_len, p_len)
         return C
 
 

@@ -79,7 +79,7 @@ class SAN(nn.Module):
         H_q = self.context(E_q, q_len)  # (batch_size, q_len, 2 * hidden_size)
 
         print(f"H_p {H_p.size()}, H_q {H_q.size()}")
-        M = self.memory(H_p, H_q, p_mask, q_mask)  # (batch_size, p_len, 2 * hidden_size)
+        M = self.memory(H_p, H_q, torch.unsqueeze(p_mask, dim=2), torch.unsqueeze(q_mask, dim=2))  # (batch_size, p_len, 2 * hidden_size)
 
         print(f"M {M.size()}")
         # at least one step of the answer module MUST be active during training.
