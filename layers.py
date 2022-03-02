@@ -188,7 +188,7 @@ class AnswerModule(nn.Module):
 
             p1[t] = torch.softmax(torch.einsum('bd,bdn->bn', (s[t], torch.matmul(self.W_6, M))), dim=1)
             s2 = torch.einsum('bn,bdn->bd', (p1[t], M))
-            s2 = torch.cat((s[t], torch.einsum('bn,bdn->bd', (p1[t], M))), dim=1) # (batch_size, 4 * hidden_size)
+            s2 = torch.cat((s[t], s2), dim=1) # (batch_size, 4 * hidden_size)
             p2[t] = torch.softmax(torch.einsum('bd,bdn->bn', (s2, torch.matmul(self.W_7, M))), dim=1)
             final_p1 += p1[t]
             final_p2 += p2[t]
