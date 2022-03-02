@@ -76,8 +76,8 @@ class SAN(nn.Module):
         E_q = self.ffn_q(
             R_q)  # (batch_size, 300, q_len) -> (batch_size, hidden_size, q_len) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
 
-        H_p = self.context(E_p, p_mask)  # (batch_size. 2 * hidden_size, p_len)
-        H_q = self.context(E_q, q_mask)  # (batch_size. 2 * hidden_size, q_len)
+        H_p = self.context(E_p, p_len)  # (batch_size. 2 * hidden_size, p_len)
+        H_q = self.context(E_q, q_len)  # (batch_size. 2 * hidden_size, q_len)
 
         M = self.memory(H_p, H_q, p_mask,
                         q_mask)  # (batch_size, 2 * hidden_size, p_len) I think, BiLSTM applied to a (batch_size, 8 * hidden_size, p_len) matrix
