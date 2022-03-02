@@ -83,7 +83,7 @@ class SAN(nn.Module):
 
         print(f"M {M.size()}")
         # at least one step of the answer module MUST be active during training.
-        p1, p2 = self.answer(H_p, H_q, M, p_mask, q_mask)  # 2 tensors each of shape (batch_size, p_len)
+        p1, p2 = self.answer(H_p, H_q, M)  # 2 tensors each of shape (batch_size, p_len)
 
         return p1, p2
 
