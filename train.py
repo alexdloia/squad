@@ -107,7 +107,7 @@ def main(args):
                                  num_workers=args.num_workers,
                                  collate_fn=collate_fn)
 
-    torch.autograd.set_detect_anamoly(True)
+    torch.autograd.set_detect_anomaly(True)
     # Train
     log.info('Training...')
     steps_till_eval = args.eval_steps
