@@ -111,18 +111,37 @@ class SANFeedForward(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.drop_prob = drop_prob
+<<<<<<< HEAD
         self.W_1 = nn.Linear(input_size, hidden_size)
 
         if num_layers == 2:
             self.W_2 = nn.Linear(hidden_size, hidden_size)
+=======
+        self.l1 = nn.Linear(in_features=input_size, out_features=hidden_size, bias=True)
+
+        if num_layers == 2:
+            self.l2 = nn.Linear(in_features=hidden_size, out_features=hidden_size, bias=True)
+            for weight in (self.l1, self.l2):
+                nn.init.xavier_uniform_(weight)
+        else:
+            nn.init.xavier_uniform_(self.l1.weight)
+>>>>>>> 844c488f56e7bcb3012c3180359a074488f0e864
 
         self.relu = nn.ReLU()
 
     def forward(self, x):
+<<<<<<< HEAD
         x = self.W_1(x)
         x = self.relu(x)
         if self.num_layers == 2:
             x = self.W_2(x)
+=======
+        # x (B, a, b)
+        # w_1 (d, a)
+        x = self.relu(self.l1(x))
+        if self.num_layers == 2:
+            x = self.relu(self.l2(x))
+>>>>>>> 844c488f56e7bcb3012c3180359a074488f0e864
         return x
 
 class DotProductAttention(nn.Module):
@@ -133,30 +152,23 @@ class DotProductAttention(nn.Module):
 
     def __init__(self, hidden_size, drop_prob):
         super(DotProductAttention, self).__init__()
-        self.Qkey_weight = nn.Parameter(torch.zeros(hidden_size, hidden_size))
-        self.Qvalue_weight = nn.Parameter(torch.zeros(hidden_size, hidden_size))
-        self.P_weight = nn.Parameter(torch.zeros(hidden_size, hidden_size))
+        self.Qkey = nn.Linear(in_features=hidden_size, out_features=hidden_size, bias=True)
+        self.P= nn.Linear(in_features=hidden_size, out_features=hidden_size, bias=True)
         self.attn_drop = nn.Dropout(drop_prob)
 
-        self.Qkey_bias = nn.Parameter(torch.zeros(1))
-        self.Qvalue_bias = nn.Parameter(torch.zeros(1))
-        self.P_bias = nn.Parameter(torch.zeros(1))
-        for weight in (self.Qkey_weight, self.Qvalue_weight, self.P_weight):
-            nn.init.xavier_uniform_(weight)
+        nn.init.xavier_uniform_(self.Qkey.weight)
+        nn.init.xavier_uniform_(self.P.weight)
 
         self.relu = nn.ReLU()
 
     def forward(self, H_qhat, H_phat):
-        # print(self.P_weight.shape)
-        # print(H_phat.shape)
-        P = self.relu(torch.matmul(self.P_weight, H_phat) + self.P_bias)
-        Qkey = self.relu(torch.matmul(self.Qkey_weight, H_qhat) + self.P_bias)
-        Qvalue = H_qhat
-        print(P.shape)
+
+        P = self.relu(self.P(H_phat)) # shape (batch_size, p_len, hidden_size)
+        # print(P.shape)
+        Qkey = self.relu(self.Qkey(H_qhat)) # shape (batch_size, q_len, hidden_size)
+        # print(P.shape)
         # print(Qkey.shape)
-        Qkey = torch.transpose(Qkey, 1, 2)
-        print(Qkey.shape)
-        C = torch.nn.functional.softmax(torch.matmul(Qkey, P), dim=-1)
+        C = torch.nn.functional.softmax(torch.matmul(Qkey, torch.transpose(P, 1, 2)), dim=1) # shape (batch_size, q_len, p_len)
         return C
 
 
@@ -174,52 +186,51 @@ class MemoryGeneration(nn.Module):
         self.lstm = nn.LSTM(8 * hidden_size, hidden_size, num_layers, batch_first=True, bidirectional=True,
                             dropout=drop_prob if num_layers > 1 else 0.)
 
-        self.Up_weight1 = nn.Parameter(torch.zeros(4 * hidden_size, 4 * hidden_size))
-        self.Up_bias = nn.Parameter(torch.zeros(1))
-
-        self.Up_weight2 = nn.Parameter(torch.zeros(4 * hidden_size, 4 * hidden_size))
-        for weight in (self.Up_weight1, self.Up_weight2):
-            nn.init.xavier_uniform_(weight)
-        self.Up_bias1 = nn.Parameter(torch.zeros(1))
-        self.Up_bias2 = nn.Parameter(torch.zeros(1))
+        self.Up1 = nn.Linear(in_features=4*hidden_size, out_features=4*hidden_size,bias=True)
+        self.Up2 = nn.Linear(in_features=4*hidden_size, out_features=4*hidden_size,bias=True)
         self.relu = nn.ReLU()
 
     def forward(self, H_p, H_q, p_mask, q_mask):
         # construct working memory summary of information from P and Q
-        H_qhat = self.ffn_q(H_q)  # (batch_size, hidden_size, q_len) I think
-        H_phat = self.ffn_p(H_p)  # (batch_size, hidden_size, q_len) I think
+        H_qhat = self.ffn_q(H_q)  # (batch_size, q_len, hidden_size) I think
+        H_phat = self.ffn_p(H_p)  # (batch_size, p_len, hidden_size) I think
 
-        # print(H_qhat.shape, H_phat.shape)
-        C = self.dropout(self.f_attn(H_qhat, H_phat))  # attention from https://arxiv.org/pdf/1706.03762.pdf
+        # print(H_qhat.shape)
+        # print(H_phat.shape)
+        # assert ValueError("Done with SANFeedForward")
+
+        C = self.dropout(self.f_attn(H_qhat, H_phat)) # (batch_size, q_len, p_len)
+
+        # attention from https://arxiv.org/pdf/1706.03762.pdf
         # I think that this is just softmax(Q @ K^T / sqrt(d_k)) @ V for query, key, value
-        print(C.shape)
+        # print("C shape", C.shape)
 
-        q = torch.matmul(H_q, C)
-        print(q.shape)
-        print(H_p.shape)
+        q = torch.matmul(torch.transpose(C, 1,2), H_q) # (batch_size, p_len, 2*hidden_size)
+        # print("Q shape", q.shape)
+        # print(H_p.shape)
 
-        U_p = torch.cat((H_p, q), dim=1)  # (batch_size, 4 * hidden_size, p_len)
+        U_p = torch.cat((H_p, q), dim=-1) # (batch_size, p_len, 4*hidden_size)
 
-        # print(U_p.shape)
-        U_p1 = torch.matmul(self.Up_weight1, U_p) + self.Up_bias1
-        U_p2 = torch.matmul(self.Up_weight2, U_p) + self.Up_bias2
+        # print("U_p", U_p.shape)
+        U_p1 = self.Up1(U_p)  # (batch_size, p_len, 4*hidden_size)
+        U_p2 = self.Up2(U_p) # (batch_size, p_len, 4*hidden_size)
 
-        print(U_p1.shape)
-        print(U_p2.shape)
-        dp = torch.transpose(U_p1, 1, 2) @ U_p2
+        # print(U_p1.shape)
+        # print(U_p2.shape)
+        dp =  U_p1 @ torch.transpose(U_p2, 1, 2) # (batch_size, p_len, p_len)
 
-        print(dp.shape)
-        U_phat = torch.nn.functional.softmax(dp, dim=-1)
+        # print(dp.shape)
+        U_phat = torch.nn.functional.softmax(dp, dim=1) # (batch_size, p_len, p_len)
         # U_phat = U_phat.fill_diagonal_(0)
-        print(U_phat.shape)
-        mask = torch.eye(U_phat.shape[1]).repeat(U_phat.shape[0], 1, 1).bool()
+        # print(U_phat.shape)
+        mask = torch.eye(U_phat.shape[1]).repeat(U_phat.shape[0], 1, 1).bool() 
         U_phat[mask] = 0
-        U_phat = U_p @ self.dropout(U_phat)  # apply diag (batch_size, 4*hidden_size, p_len)
 
-        U = torch.cat((U_p, U_phat), dim=1)
-        print(U.shape)
-        U = torch.transpose(U, 1, 2)
+        U_phat = torch.matmul(self.dropout(U_phat), U_p)  #apply diag (batch_size, p_len, hidden_size)
+
+        U = torch.cat((U_p, U_phat), dim=-1) # (batch_size, p_len, 8*hidden_size)
         M = self.lstm(U)
+
         return M
         # U_phat[diagonal] = 0 # zero out all the values on the diagonal. torch.diagonal might help
         # U_phat = U_p @ U_phat
@@ -759,7 +770,7 @@ class BiDAFOutput(nn.Module):
 
 
 if __name__ == "__main__":
-    test = "ContextualEmbedding"
+    test = "MemoryGeneration"
     batch_size, num_candidates, d, p_len, q_len, T, drop_prob = 5, 4, 3, 10, 15, 5, 0.4
     if test == "RankerLayer":
         """
@@ -822,12 +833,11 @@ if __name__ == "__main__":
         memGen = MemoryGeneration(hidden_size=128, num_layers=1, drop_prob=.4)
         q_len = 10
         p_len = 30
-        H_q = torch.randn(batch_size, 2 * 128, q_len)
-        H_p = torch.randn(batch_size, 2 * 128, p_len)
-        print(memGen(H_q, H_p, p_mask=None, q_mask=None))
+        H_q = torch.randn(batch_size, q_len, 2*128)
+        H_p = torch.randn(batch_size, p_len, 2*128)
+        print(memGen(H_p, H_q, p_mask=None, q_mask=None))
     elif test == "ContextualEmbedding":
         context = ContextualEmbedding(input_size=d, hidden_size=d, drop_prob=drop_prob, num_layers=2)
         x = torch.randn(batch_size, p_len, d)
         lengths = torch.randint(1, p_len + 1, (batch_size,))
         print(context(x, lengths))
-
