@@ -286,8 +286,8 @@ class AnswerModule(nn.Module):
         else:
             chosen_t = torch.ones(p_len)
 
-        final_p1 = torch.zeros((batch_size, p_len))
-        final_p2 = torch.zeros((batch_size, p_len))
+        final_p1 = H_p.new_zeros(size=((batch_size, p_len))
+        final_p2 = H_p.new_zeros(size=((batch_size, p_len))
         for t in range(self.T):
             if not chosen_t[t]:
                 continue
