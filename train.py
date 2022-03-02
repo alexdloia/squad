@@ -60,7 +60,7 @@ def main(args):
                     drop_prob=args.drop_prob).to(device)
     elif args.model == 'san':
         model = SAN(word_vectors=word_vectors,
-                    hidden_size=args.hidden_size,
+                    hidden_size=128,
                     drop_prob=args.drop_prob,
                     T=5).to(device)
     model = nn.DataParallel(model, args.gpu_ids)

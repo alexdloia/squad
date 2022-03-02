@@ -111,34 +111,19 @@ class SANFeedForward(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.drop_prob = drop_prob
-        self.W_1 = nn.Parameter(torch.zeros(hidden_size, input_size))
+        self.W_1 = nn.Linear(input_size, hidden_size)
 
         if num_layers == 2:
-            self.W_2 = nn.Parameter(torch.zeros(hidden_size, hidden_size))
-            for weight in (self.W_1, self.W_2):
-                nn.init.xavier_uniform_(weight)
-        else:
-            nn.init.xavier_uniform_(self.W_1)
+            self.W_2 = nn.Linear(hidden_size, hidden_size)
 
         self.relu = nn.ReLU()
 
-        self.bias = nn.Parameter(torch.zeros(1))
-        self.bias2 = nn.Parameter(torch.zeros(1))
-
     def forward(self, x):
-        # x (B, a, b)
-        # w_1 (d, a)
-        x = torch.matmul(self.W_1, x)  # self.W_1(x)
+        x = self.W_1(x)
         x = self.relu(x)
         if self.num_layers == 2:
-            x = torch.matmul(self.W_2, x)  # self.W_2(x)
+            x = self.W_2(x)
         return x
-        # x = self.W_1(x)
-        # x = self.relu(x)
-        # if self.num_layers == 2:
-        #     x = self.W_2(x)
-        # return x
-
 
 class DotProductAttention(nn.Module):
     """
