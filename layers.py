@@ -245,9 +245,9 @@ class AnswerModule(nn.Module):
         _, p_len, _ = H_p.size()
 
         # might want to swap to be (batch_size, T, ...) for these arrays... idk
-        s = torch.zeros(self.T, batch_size, 2 * self.hidden_size)
-        p1 = torch.zeros(self.T, batch_size, p_len)
-        p2 = torch.zeros(self.T, batch_size, p_len)
+        s = H_p.new_zeros(size=(self.T, batch_size, 2 * self.hidden_size))
+        p1 = H_p.new_zeros(size=(self.T, batch_size, p_len))
+        p2 = H_p.new_zeros(size=(self.T, batch_size, p_len))
 
         print(H_p.size(), H_q.size(), M.size())
         # H_q (batch_size, q_len, 2 * hidden_size)
@@ -267,7 +267,7 @@ class AnswerModule(nn.Module):
         # s[t] = self.gru(s[t-1], x[t]
         for t in range(1, self.T):
             # beta[j] = softmax(s[t-1] @ self.W_5 @ M)
-            print(s[t].size(), self.W_5(M).size())
+            print("st, w5", s[t].size(), self.W_5(M).size())
             beta = torch.softmax(torch.einsum('bd,bnd->bn', (s[t], self.W_5(M))),
                                  dim=1)  # softmax across the non-batch dimension (batch_size, p_len)
 
