@@ -12,6 +12,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+
+import layers
 from util import masked_softmax, tag_list, ent_list, \
     get_binary_exact_match_features, indices_to_pos_ner_one_hots, get_lens_from_mask
 from torch.distributions.bernoulli import Bernoulli
@@ -84,16 +86,21 @@ class ContextualEmbedding(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.drop_prob = drop_prob
+        self.enc = RNNEncoder(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            drop_prob=drop_prob
+        )
 
-    def forward(self, x):
+    def forward(self, x, lengths):
         # given x (batch_size, hidden_size, seq_len)
 
         # the paper used a pretrained BiLSTM, guess we need to replace this with something
         # for now, we can just train our own BiLSTM?
         # see BiDAF / SCR for an example
 
-        # return r (batch_size, 2 * hidden_size, seq_len)
-        pass
+        return self.enc(x, lengths)
 
 
 class SANFeedForward(nn.Module):

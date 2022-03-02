@@ -42,7 +42,7 @@ class SAN(nn.Module):
 
         self.context = layers.ContextualEmbedding(input_size=hidden_size,
                                                   hidden_size=hidden_size,
-                                                  num_layers=1,
+                                                  num_layers=2,
                                                   drop_prob=drop_prob)
 
         self.ffn_p = layers.SANFeedForward(input_size=600,
@@ -60,7 +60,7 @@ class SAN(nn.Module):
                                               drop_prob=drop_prob)
 
         self.answer = layers.AnswerModule(hidden_size=hidden_size,
-                                     drop_prob=drop_prob, T=T)
+                                          drop_prob=drop_prob, T=T)
 
     def forward(self, pw_idxs, qw_idxs):
         p_mask = torch.zeros_like(pw_idxs) != pw_idxs  # (batch_size, p_len)
@@ -75,8 +75,8 @@ class SAN(nn.Module):
         E_q = self.ffn_q(
             R_q)  # (batch_size, q_len, 300) -> (batch_size, q_len, hidden_size) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
 
-        H_p = self.context(E_p, p_mask)  # (batch_size, p_len, 2 * hidden_size)
-        H_q = self.context(E_q, q_mask)  # (batch_size, q_len, 2 * hidden_size)
+        H_p = self.context(E_p, p_len)  # (batch_size, p_len, 2 * hidden_size)
+        H_q = self.context(E_q, q_len)  # (batch_size, q_len, 2 * hidden_size)
 
         M = self.memory(H_p, H_q, p_mask,
                         q_mask)  # (batch_size, p_len, 2 * hidden_size)
@@ -84,7 +84,7 @@ class SAN(nn.Module):
         # at least one step of the answer module MUST be active during training.
         p1, p2 = self.answer(H_p, H_q, M, p_mask, q_mask)  # 2 tensors each of shape (batch_size, p_len)
 
-        return (p1, p2)
+        return p1, p2
 
 
 class SCR(nn.Module):
@@ -115,8 +115,8 @@ class SCR(nn.Module):
         self.hidden_size = hidden_size
         self.num_candidates = num_candidates
         self.lex = layers.LexiconEncoder(word_vectors=word_vectors,
-                                    hidden_size=hidden_size,
-                                    drop_prob=drop_prob)
+                                         hidden_size=hidden_size,
+                                         drop_prob=drop_prob)
 
         self.enc = layers.RNN_GRUEncoder(input_size=hidden_size,
                                          hidden_size=hidden_size,
