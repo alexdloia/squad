@@ -43,7 +43,7 @@ class SAN(nn.Module):
 
         self.context = layers.ContextualEmbedding(input_size=hidden_size,
                                                   hidden_size=hidden_size,
-                                                  num_layers=1,
+                                                  num_layers=2,
                                                   drop_prob=drop_prob)
 
         self.ffn_p = layers.SANFeedForward(input_size=600,
@@ -85,7 +85,7 @@ class SAN(nn.Module):
         # at least one step of the answer module MUST be active during training.
         p1, p2 = self.answer(H_p, H_q, M, p_mask, q_mask)  # 2 tensors each of shape (batch_size, p_len)
 
-        return (p1, p2)
+        return p1, p2
 
 
 class SCR(nn.Module):
