@@ -75,7 +75,7 @@ class LexiconEncoder(nn.Module):
         # align = f_align(p_i) for i in p_len for b in batch_size (batch_size, p_len, 280)
         align = torch.bmm(gammas, g_q)  # (batch_size, p_len, 280)
 
-        R_p = torch.cat((embed, align, pos, ner, bem), dim=-1)
+        R_p = torch.cat((embed, align, pos, ner, bem), dim=-1) # (batch_size, p_len, embed_size + 300)
 
         return R_p, R_q
 
@@ -145,11 +145,12 @@ class DotProductAttention(nn.Module):
     Dot Product Attention modeled off of
     -https://www.tandfonline.com/doi/full/10.1080/00051144.2020.1809221
     """
+
     def __init__(self, hidden_size, drop_prob):
         super(DotProductAttention, self).__init__()
         self.Qkey_weight = nn.Parameter(torch.zeros(hidden_size, hidden_size))
         self.Qvalue_weight = nn.Parameter(torch.zeros(hidden_size, hidden_size))
-        self.P_weight= nn.Parameter(torch.zeros(hidden_size, hidden_size))
+        self.P_weight = nn.Parameter(torch.zeros(hidden_size, hidden_size))
         self.attn_drop = nn.Dropout(drop_prob)
 
         self.Qkey_bias = nn.Parameter(torch.zeros(1))
@@ -168,7 +169,7 @@ class DotProductAttention(nn.Module):
         Qvalue = H_qhat
         print(P.shape)
         # print(Qkey.shape)
-        Qkey = torch.transpose(Qkey, 1,2)
+        Qkey = torch.transpose(Qkey, 1, 2)
         print(Qkey.shape)
         C = torch.nn.functional.softmax(torch.matmul(Qkey, P), dim=-1)
         return C
@@ -185,13 +186,13 @@ class MemoryGeneration(nn.Module):
         self.dropout = nn.Dropout(drop_prob)
         self.f_attn = DotProductAttention(hidden_size, drop_prob)
         # I think this is the right LSTM, but not sure
-        self.lstm = nn.LSTM(8 * hidden_size, hidden_size, num_layers, batch_first=True, bidirectional=True, dropout=drop_prob if num_layers > 1 else 0.)
+        self.lstm = nn.LSTM(8 * hidden_size, hidden_size, num_layers, batch_first=True, bidirectional=True,
+                            dropout=drop_prob if num_layers > 1 else 0.)
 
-
-        self.Up_weight1 = nn.Parameter(torch.zeros(4*hidden_size, 4*hidden_size))
+        self.Up_weight1 = nn.Parameter(torch.zeros(4 * hidden_size, 4 * hidden_size))
         self.Up_bias = nn.Parameter(torch.zeros(1))
 
-        self.Up_weight2 = nn.Parameter(torch.zeros(4*hidden_size, 4*hidden_size))
+        self.Up_weight2 = nn.Parameter(torch.zeros(4 * hidden_size, 4 * hidden_size))
         for weight in (self.Up_weight1, self.Up_weight2):
             nn.init.xavier_uniform_(weight)
         self.Up_bias1 = nn.Parameter(torch.zeros(1))
@@ -204,15 +205,15 @@ class MemoryGeneration(nn.Module):
         H_phat = self.ffn_p(H_p)  # (batch_size, hidden_size, q_len) I think
 
         # print(H_qhat.shape, H_phat.shape)
-        C = self.dropout(self.f_attn(H_qhat, H_phat)) # attention from https://arxiv.org/pdf/1706.03762.pdf
+        C = self.dropout(self.f_attn(H_qhat, H_phat))  # attention from https://arxiv.org/pdf/1706.03762.pdf
         # I think that this is just softmax(Q @ K^T / sqrt(d_k)) @ V for query, key, value
         print(C.shape)
 
-        q = torch.matmul(H_q,C)
+        q = torch.matmul(H_q, C)
         print(q.shape)
         print(H_p.shape)
 
-        U_p = torch.cat((H_p, q), dim=1) # (batch_size, 4 * hidden_size, p_len)
+        U_p = torch.cat((H_p, q), dim=1)  # (batch_size, 4 * hidden_size, p_len)
 
         # print(U_p.shape)
         U_p1 = torch.matmul(self.Up_weight1, U_p) + self.Up_bias1
@@ -228,7 +229,7 @@ class MemoryGeneration(nn.Module):
         print(U_phat.shape)
         mask = torch.eye(U_phat.shape[1]).repeat(U_phat.shape[0], 1, 1).bool()
         U_phat[mask] = 0
-        U_phat = U_p @ self.dropout(U_phat) #apply diag (batch_size, 4*hidden_size, p_len)
+        U_phat = U_p @ self.dropout(U_phat)  # apply diag (batch_size, 4*hidden_size, p_len)
 
         U = torch.cat((U_p, U_phat), dim=1)
         print(U.shape)
@@ -313,7 +314,7 @@ class AnswerModule(nn.Module):
 
             p1[t] = torch.softmax(torch.einsum('bd,bdn->bn', (s[t], torch.matmul(self.W_6, M))), dim=1)
             s2 = torch.einsum('bn,bdn->bd', (p1[t], M))
-            s2 = torch.cat((s[t], s2), dim=1) # (batch_size, 4 * hidden_size)
+            s2 = torch.cat((s[t], s2), dim=1)  # (batch_size, 4 * hidden_size)
             p2[t] = torch.softmax(torch.einsum('bd,bdn->bn', (s2, torch.matmul(self.W_7, M))), dim=1)
             final_p1 += p1[t]
             final_p2 += p2[t]
@@ -773,7 +774,7 @@ class BiDAFOutput(nn.Module):
 
 
 if __name__ == "__main__":
-    test = "AnswerModule"
+    test = "ContextualEmbedding"
     batch_size, num_candidates, d, p_len, q_len, T, drop_prob = 5, 4, 3, 10, 15, 5, 0.4
     if test == "RankerLayer":
         """
@@ -836,6 +837,12 @@ if __name__ == "__main__":
         memGen = MemoryGeneration(hidden_size=128, num_layers=1, drop_prob=.4)
         q_len = 10
         p_len = 30
-        H_q = torch.randn(batch_size, 2*128, q_len)
-        H_p = torch.randn(batch_size, 2*128, p_len)
+        H_q = torch.randn(batch_size, 2 * 128, q_len)
+        H_p = torch.randn(batch_size, 2 * 128, p_len)
         print(memGen(H_q, H_p, p_mask=None, q_mask=None))
+    elif test == "ContextualEmbedding":
+        context = ContextualEmbedding(input_size=d, hidden_size=d, drop_prob=drop_prob, num_layers=2)
+        x = torch.randn(batch_size, p_len, d)
+        lengths = torch.randint(1, p_len + 1, (batch_size,))
+        print(context(x, lengths))
+
