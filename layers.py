@@ -258,7 +258,8 @@ class AnswerModule(nn.Module):
         alpha = torch.softmax(torch.squeeze(self.W_4(H_q), dim=2), dim=1)  # exp(w_4 H_q_j) for each j, batch
         # alpha has shape (batch_size, q_len)
         print(alpha.size(), H_q.size())
-        s[0] = torch.einsum('bq,bqh->bh', (alpha, H_q))  # sum_j \alpha_j (H_q)_j for each batch
+
+        s[0] = torch.squeeze(torch.bmm(torch.unsqueeze(alpha, dim=1), H_q), dim=1)  # sum_j \alpha_j (H_q)_j for each batch
 
         # at time step t = 1, 2, ... T_1:
         # x_t = sum(beta[j] * M[j])
@@ -273,8 +274,11 @@ class AnswerModule(nn.Module):
             print(w5m.size())
             beta = torch.softmax(torch.squeeze(w5m, dim=2), dim=1)  # softmax across the non-batch dimension (batch_size, p_len)
 
-            x = torch.einsum('bn,bnd->bd',
-                             (beta, M))  # sum beta_j M_j for all j, all batch (batch_size, 2 * hidden_size)
+
+            print(beta.size(), M.size())
+            x = torch.bmm(torch.unsqueeze(beta, dim=1), M)
+            print(x.size())
+            x = torch.squeeze(x, dim=1)  # sum beta_j M_j for all j, all batch (batch_size, 2 * hidden_size)
             s_tmp, _ = self.gru(torch.unsqueeze(s[t - 1], 1), torch.unsqueeze(x, 0))
             s[t] = torch.squeeze(s_tmp, dim=1)
 
@@ -759,7 +763,7 @@ class BiDAFOutput(nn.Module):
 
 
 if __name__ == "__main__":
-    test = "MemoryGeneration"
+    test = "AnswerModule"
     batch_size, num_candidates, d, p_len, q_len, T, drop_prob = 5, 4, 3, 10, 15, 5, 0.4
     if test == "RankerLayer":
         """
