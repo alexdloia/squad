@@ -246,8 +246,6 @@ class AnswerModule(nn.Module):
 
         # might want to swap to be (batch_size, T, ...) for these arrays... idk
         s = H_p.new_zeros(size=(self.T, batch_size, 2 * self.hidden_size))
-        p1 = H_p.new_zeros(size=(self.T, batch_size, p_len))
-        p2 = H_p.new_zeros(size=(self.T, batch_size, p_len))
 
         print(H_p.size(), H_q.size(), M.size())
         # H_q (batch_size, q_len, 2 * hidden_size)
@@ -286,22 +284,22 @@ class AnswerModule(nn.Module):
         else:
             chosen_t = torch.ones(p_len)
 
-        final_p1 = H_p.new_zeros(size=(batch_size, p_len))
-        final_p2 = H_p.new_zeros(size=(batch_size, p_len))
+        p1 = H_p.new_zeros(size=(batch_size, p_len))
+        p2 = H_p.new_zeros(size=(batch_size, p_len))
         for t in range(self.T):
             if not chosen_t[t]:
                 continue
 
-            p1[t] = torch.softmax(torch.einsum('bd,bnd->bn', (s[t], self.W_6(M))), dim=1)
+            p1_tmp = torch.softmax(torch.einsum('bd,bnd->bn', (s[t], self.W_6(M))), dim=1)
             s2 = torch.einsum('bn,bnd->bd', (p1[t], M))
             s2 = torch.cat((s[t], s2), dim=1)  # (batch_size, 4 * hidden_size)
 
-            p2[t] = torch.softmax(torch.einsum('bd,bnd->bn', (s2, self.W_7(M))), dim=1)
-            final_p1 += p1[t]
-            final_p2 += p2[t]
+            p2_tmp = torch.softmax(torch.einsum('bd,bnd->bn', (s2, self.W_7(M))), dim=1)
+            p1 += p1_tmp
+            p2 += p2_tmp
 
-        final_p1 /= sum(chosen_t)  # normalize our probabilities by how many distributions we summed
-        final_p2 /= sum(chosen_t)
+        p1 /= sum(chosen_t)  # normalize our probabilities by how many distributions we summed
+        p2 /= sum(chosen_t)
 
         return final_p1.log(), final_p2.log()  # return as log probabilities for their code scaffolding
 
