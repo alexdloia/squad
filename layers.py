@@ -142,14 +142,14 @@ class DotProductAttention(nn.Module):
 
         self.relu = nn.ReLU()
 
-    def forward(self, H_qhat, H_phat):
+    def forward(self, H_qhat, H_phat, q_mask):
 
         P = self.relu(self.P(H_phat)) # shape (batch_size, p_len, hidden_size)
         # print(P.shape)
         Qkey = self.relu(self.Qkey(H_qhat)) # shape (batch_size, q_len, hidden_size)
         # print(P.shape)
         # print(Qkey.shape)
-        C = torch.nn.functional.softmax(torch.matmul(Qkey, torch.transpose(P, 1, 2)), dim=1) # shape (batch_size, q_len, p_len)
+        C = masked_softmax(torch.matmul(Qkey, torch.transpose(P, 1, 2)), dim=1, mask=q_mask) # shape (batch_size, q_len, p_len)
         return C
 
 
@@ -180,7 +180,7 @@ class MemoryGeneration(nn.Module):
         # print(H_phat.shape)
         # assert ValueError("Done with SANFeedForward")
 
-        C = self.dropout(self.f_attn(H_qhat, H_phat)) # (batch_size, q_len, p_len)
+        C = self.dropout(self.f_attn(H_qhat, H_phat, q_mask)) # (batch_size, q_len, p_len)
 
         # attention from https://arxiv.org/pdf/1706.03762.pdf
         # I think that this is just softmax(Q @ K^T / sqrt(d_k)) @ V for query, key, value
@@ -201,7 +201,7 @@ class MemoryGeneration(nn.Module):
         dp =  U_p1 @ torch.transpose(U_p2, 1, 2) # (batch_size, p_len, p_len)
 
         # print(dp.shape)
-        U_phat = torch.nn.functional.softmax(dp, dim=1) # (batch_size, p_len, p_len)
+        U_phat = masked_softmax(dp, dim=1, mask=p_mask) # (batch_size, p_len, p_len)
         # U_phat = U_phat.fill_diagonal_(0)
         # print(U_phat.shape)
         mask = torch.eye(U_phat.shape[1]).repeat(U_phat.shape[0], 1, 1).bool()
