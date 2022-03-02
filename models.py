@@ -8,6 +8,9 @@ import layers
 import torch
 import torch.nn as nn
 
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
+
 
 class SAN(nn.Module):
     """Stochastic Answer Network (SAN)
