@@ -29,6 +29,7 @@ nlp = spacy.load("en_core_web_sm")
 # POS tagging
 tag_list = nlp.get_pipe("tagger").labels
 tag2idx = {tag: idx for idx, tag in enumerate(tag_list)}
+tag2idx[''] = tag2idx['XX']
 
 # NER
 ent_list = [name[2:] for name in nlp.entity.move_names[:18]] + ['']
