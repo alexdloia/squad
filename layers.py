@@ -46,12 +46,12 @@ class LexiconEncoder(nn.Module):
         self.w0 = nn.Linear(300, 280, bias=False)
         self.g_func = nn.Sequential(nn.Linear(300, 280, bias=False), nn.ReLU())
 
-    def forward(self, x, pw_idxs, qw_idxs, p_mask, q_mask):
+    def forward(self, pw_idxs, qw_idxs, p_mask, q_mask):
         # step 1: embed x (batch_size, p_len)
-        embed = self.embed(x)  # (batch_size, p_len, embed_size)
+        embed = self.embed(pw_idxs)  # (batch_size, p_len, embed_size)
 
         # step 2 & 3: get POS and NER tagging for x
-        pos, ner = POSNERTagging()(x)  # (batch_size, p_len, 9), (batch_size, p_len, 8)
+        pos, ner = POSNERTagging()(pw_idxs, p_mask)  # (batch_size, p_len, 9), (batch_size, p_len, 8)
 
         # step 4: get binary exact match feature
         # this feature is 3 dimensions for 3 kinds of matching between the pw_idxs and the qw_idxs
@@ -63,10 +63,10 @@ class LexiconEncoder(nn.Module):
         # g(.) is a 280-dimensional single layer g(x) = ReLU(W_0 x)
         # gamma[i, j] = (g(GLOVE(p_i)) * g(GLOVE(q_j))).exp() / sum(np.exp(g(GLOVE(p_i)) * g(GLOVE(q_j))) for j in range(qi_len))
         # remember that the length of q is variable based on q_mask
-        q_embed = self.embed(qw_idxs)  # (batch_size, q_len, embed_size)
+        R_q = self.embed(qw_idxs)  # (batch_size, q_len, embed_size)
         # gammas (batch_size, p_len, q_len)
         g_p = self.g_func(embed)  # (batch_size, p_len, 280)
-        g_q = self.g_func(q_embed)  # (batch_size, q_len, 280)
+        g_q = self.g_func(R_q)  # (batch_size, q_len, 280)
         pregammas = torch.bmm(g_p, g_q.transpose(1, 2))  # (batch_size, p_len, q_len)
         gammas = F.softmax(pregammas, dim=-1)
         # align = f_align(p_i) for i in p_len for b in batch_size (batch_size, p_len, 280)
@@ -74,7 +74,7 @@ class LexiconEncoder(nn.Module):
 
         R_p = torch.cat((embed, align, pos, ner, bem), dim=-1)
 
-        return R_p
+        return R_p, R_q
 
 
 class ContextualEmbedding(nn.Module):

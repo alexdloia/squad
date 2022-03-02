@@ -35,9 +35,7 @@ ent_list = [name[2:] for name in nlp.entity.move_names[:18]] + ['']
 ent2idx = {ent: idx for idx, ent in enumerate(ent_list)}
 
 def get_lens_from_mask(mask):
-    _, seq_len = mask.size()
-    lens = mask.long().argmin(dim=-1)
-    return torch.where(mask.bool()[:, -1], seq_len, lens)
+    return mask.sum(dim=-1)
 
 def indices_to_pos_ner_one_hots(idxs, mask):
     """
