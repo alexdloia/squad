@@ -175,6 +175,7 @@ class MemoryGeneration(nn.Module):
         # construct working memory summary of information from P and Q
         H_qhat = self.ffn_q(H_q)  # (batch_size, q_len, hidden_size) I think
         H_phat = self.ffn_p(H_p)  # (batch_size, p_len, hidden_size) I think
+        print("mask", p_mask.size(), q_mask.size())
 
         # print(H_qhat.shape)
         # print(H_phat.shape)
@@ -757,7 +758,7 @@ class BiDAFOutput(nn.Module):
 
 
 if __name__ == "__main__":
-    test = "AnswerModule"
+    test = "MemoryGeneration"
     batch_size, num_candidates, d, p_len, q_len, T, drop_prob = 5, 4, 3, 10, 15, 5, 0.4
     if test == "RankerLayer":
         """
