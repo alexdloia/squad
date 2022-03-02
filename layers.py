@@ -250,6 +250,7 @@ class AnswerModule(nn.Module):
         p1 = torch.zeros(self.T, batch_size, p_len)
         p2 = torch.zeros(self.T, batch_size, p_len)
 
+        print(H_p.size(), H_q.size(), M.size())
         # H_q (batch_size, q_len, 2 * hidden_size)
         # M (batch_size, p_len, 2 * hidden_size)
         # s[0] = sum(alpha[j] * H_q[:, :, j]) along axis 0 I think (don't sum between batches)
@@ -265,10 +266,11 @@ class AnswerModule(nn.Module):
         # s[t] = self.gru(s[t-1], x[t]
         for t in range(1, self.T):
             # beta[j] = softmax(s[t-1] @ self.W_5 @ M)
-            beta = torch.softmax(torch.einsum('bd,bdn->bn', (s[t], torch.matmul(self.W_5, M))),
+            print(s[t].size(), torch.matmul(self.W_5, M).size())
+            beta = torch.softmax(torch.einsum('bd,bnd->bn', (s[t], torch.matmul(self.W_5, M))),
                                  dim=1)  # softmax across the non-batch dimension (batch_size, p_len)
 
-            x = torch.einsum('bn,bdn->bd',
+            x = torch.einsum('bn,bnd->bd',
                              (beta, M))  # sum beta_j M_j for all j, all batch (batch_size, 2 * hidden_size)
             s_tmp, _ = self.gru(torch.unsqueeze(s[t - 1], 1), torch.unsqueeze(x, 0))
             s[t] = torch.squeeze(s_tmp, dim=1)
@@ -289,10 +291,10 @@ class AnswerModule(nn.Module):
             if not chosen_t[t]:
                 continue
 
-            p1[t] = torch.softmax(torch.einsum('bd,bdn->bn', (s[t], torch.matmul(self.W_6, M))), dim=1)
-            s2 = torch.einsum('bn,bdn->bd', (p1[t], M))
+            p1[t] = torch.softmax(torch.einsum('bd,bnd->bn', (s[t], torch.matmul(self.W_6, M))), dim=1)
+            s2 = torch.einsum('bn,bnd->bd', (p1[t], M))
             s2 = torch.cat((s[t], s2), dim=1)  # (batch_size, 4 * hidden_size)
-            p2[t] = torch.softmax(torch.einsum('bd,bdn->bn', (s2, torch.matmul(self.W_7, M))), dim=1)
+            p2[t] = torch.softmax(torch.einsum('bd,bnd->bn', (s2, torch.matmul(self.W_7, M))), dim=1)
             final_p1 += p1[t]
             final_p2 += p2[t]
 
@@ -751,7 +753,7 @@ class BiDAFOutput(nn.Module):
 
 
 if __name__ == "__main__":
-    test = "MemoryGeneration"
+    test = "AnswerModule"
     batch_size, num_candidates, d, p_len, q_len, T, drop_prob = 5, 4, 3, 10, 15, 5, 0.4
     if test == "RankerLayer":
         """
@@ -806,7 +808,7 @@ if __name__ == "__main__":
         answer = AnswerModule(d, drop_prob, T)
         H_p = torch.randn(batch_size, p_len, 2 * d)
         H_q = torch.randn(batch_size, q_len, 2 * d)
-        M = torch.rand(batch_size, 2 * d, p_len)
+        M = torch.rand(batch_size, p_len, 2 * d)
 
         log_p1, log_p2 = answer(H_p, H_q, M)
         print(log_p1, log_p2)
