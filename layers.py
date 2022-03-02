@@ -265,21 +265,21 @@ class AnswerModule(nn.Module):
 
     def forward(self, H_p, H_q, M):
         # answer module computes over T memory steps and outputs answer span
-        batch_size, d_2, q_len = H_q.size()
-        _, _, p_len = H_p.size()
+        batch_size, q_len, d_2 = H_q.size()
+        _, p_len, _ = H_p.size()
 
         # might want to swap to be (batch_size, T, ...) for these arrays... idk
         s = torch.zeros(self.T, batch_size, 2 * self.hidden_size)
         p1 = torch.zeros(self.T, batch_size, p_len)
         p2 = torch.zeros(self.T, batch_size, p_len)
 
-        # H_q (batch_size, 2 * hidden_size, q_len)
-        # M (batch_size, 2 * hidden_size, p_len)
+        # H_q (batch_size, q_len, 2 * hidden_size)
+        # M (batch_size, p_len, 2 * hidden_size)
         # s[0] = sum(alpha[j] * H_q[:, :, j]) along axis 0 I think (don't sum between batches)
         # # sum parameters along the hidden size layer (our w_4 parameter)
-        alpha = torch.softmax(torch.einsum('bhq,h->bq', (H_q, self.W_4)), dim=1)  # exp(w_4 H_q_j) for each j, batch
+        alpha = torch.softmax(torch.einsum('bqh,h->bq', (H_q, self.W_4)), dim=1)  # exp(w_4 H_q_j) for each j, batch
         # alpha has shape (batch_size, q_len)
-        s[0] = torch.einsum('bq,bhq->bh', (alpha, H_q))  # sum_j \alpha_j (H_q)_j for each batch
+        s[0] = torch.einsum('bq,bqh->bh', (alpha, H_q))  # sum_j \alpha_j (H_q)_j for each batch
 
         # at time step t = 1, 2, ... T_1:
         # x_t = sum(beta[j] * M[j])
@@ -300,7 +300,7 @@ class AnswerModule(nn.Module):
 
         if self.training:  # dropout during training
             chosen_t = torch.zeros(p_len)
-            bernoulli = Bernoulli(torch.tensor([self.drop_prob] * p_len))
+            bernoulli = Bernoulli(torch.tensor([self.drop_prob] * self.T))
             while sum(chosen_t) == 0:  # while no time step are chosen, rechoose
                 chosen_t = bernoulli.sample()
         else:
@@ -827,8 +827,8 @@ if __name__ == "__main__":
     elif test == "AnswerModule":
         d = 128
         answer = AnswerModule(d, drop_prob, T)
-        H_p = torch.randn(batch_size, 2 * d, p_len)
-        H_q = torch.randn(batch_size, 2 * d, p_len)
+        H_p = torch.randn(batch_size, p_len, 2 * d)
+        H_q = torch.randn(batch_size, q_len, 2 * d)
         M = torch.rand(batch_size, 2 * d, p_len)
 
         log_p1, log_p2 = answer(H_p, H_q, M)
