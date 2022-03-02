@@ -29,7 +29,7 @@ class SAN(nn.Module):
         drop_prob (float): Dropout probability.
     """
 
-    def __init__(self, word_vectors, hidden_size=128, drop_prob=0.4):
+    def __init__(self, word_vectors, hidden_size=128, drop_prob=0.4, T=5):
         super(SAN, self).__init__()
         self.hidden_size = hidden_size
 
@@ -61,14 +61,11 @@ class SAN(nn.Module):
                                               drop_prob=drop_prob)
 
         self.answer = layers.AnswerModule(hidden_size=hidden_size,
-                                          num_layers=1,
-                                          drop_prob=drop_prob)
+                                     drop_prob=drop_prob, T=T)
 
     def forward(self, pw_idxs, qw_idxs):
         p_mask = torch.zeros_like(pw_idxs) != pw_idxs  # (batch_size, p_len)
-        q_mask = torch.zeros_like(qw_idxs) != qw_idxs  # (batch_size, q_len())
-
-        # raise ValueError("Untested code below this point")
+        q_mask = torch.zeros_like(qw_idxs) != qw_idxs  # (batch_size, q_len)
 
         p_len, q_len = p_mask.sum(-1), q_mask.sum(-1)
 
