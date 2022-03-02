@@ -45,6 +45,7 @@ class LexiconEncoder(nn.Module):
         self.hidden_size = hidden_size
         self.drop_prob = drop_prob
         self.embed = nn.Embedding.from_pretrained(word_vectors)
+        self.posnertagging = POSNERTagging()
         self.w0 = nn.Linear(300, 280, bias=False)
         self.g_func = nn.Sequential(nn.Linear(300, 280, bias=False), nn.ReLU())
 
@@ -53,7 +54,7 @@ class LexiconEncoder(nn.Module):
         embed = self.embed(pw_idxs)  # (batch_size, p_len, embed_size)
 
         # step 2 & 3: get POS and NER tagging for x
-        pos, ner = POSNERTagging()(pw_idxs, p_mask)  # (batch_size, p_len, 9), (batch_size, p_len, 8)
+        pos, ner = self.posnertagging(pw_idxs, p_mask)  # (batch_size, p_len, 9), (batch_size, p_len, 8)
 
         # step 4: get binary exact match feature
         # this feature is 3 dimensions for 3 kinds of matching between the pw_idxs and the qw_idxs
@@ -74,7 +75,7 @@ class LexiconEncoder(nn.Module):
         # align = f_align(p_i) for i in p_len for b in batch_size (batch_size, p_len, 280)
         align = torch.bmm(gammas, g_q)  # (batch_size, p_len, 280)
 
-        R_p = torch.cat((embed, align, pos, ner, bem), dim=-1)
+        R_p = torch.cat((embed, align, pos, ner, bem), dim=-1) # (batch_size, p_len, embed_size + 300)
 
         return R_p, R_q
 
@@ -140,6 +141,7 @@ class DotProductAttention(nn.Module):
     Dot Product Attention modeled off of
     -https://www.tandfonline.com/doi/full/10.1080/00051144.2020.1809221
     """
+
     def __init__(self, hidden_size, drop_prob):
         super(DotProductAttention, self).__init__()
         self.Qkey = nn.Linear(in_features=hidden_size, out_features=hidden_size, bias=True)
@@ -173,12 +175,11 @@ class MemoryGeneration(nn.Module):
         self.dropout = nn.Dropout(drop_prob)
         self.f_attn = DotProductAttention(hidden_size, drop_prob)
         # I think this is the right LSTM, but not sure
-        self.lstm = nn.LSTM(8 * hidden_size, hidden_size, num_layers, batch_first=True, bidirectional=True, dropout=drop_prob if num_layers > 1 else 0.)
+        self.lstm = nn.LSTM(8 * hidden_size, hidden_size, num_layers, batch_first=True, bidirectional=True,
+                            dropout=drop_prob if num_layers > 1 else 0.)
 
         self.Up1 = nn.Linear(in_features=4*hidden_size, out_features=4*hidden_size,bias=True)
         self.Up2 = nn.Linear(in_features=4*hidden_size, out_features=4*hidden_size,bias=True)
-        nn.init.xavier_uniform_(self.Up1.weight)
-        nn.init.xavier_uniform_(self.Up2.weight)
         self.relu = nn.ReLU()
 
     def forward(self, H_p, H_q, p_mask, q_mask):
@@ -189,7 +190,7 @@ class MemoryGeneration(nn.Module):
         # print(H_qhat.shape)
         # print(H_phat.shape)
         # assert ValueError("Done with SANFeedForward")
-        # print(H_qhat.shape, H_phat.shape)
+
         C = self.dropout(self.f_attn(H_qhat, H_phat)) # (batch_size, q_len, p_len)
 
         # attention from https://arxiv.org/pdf/1706.03762.pdf
@@ -252,21 +253,21 @@ class AnswerModule(nn.Module):
 
     def forward(self, H_p, H_q, M):
         # answer module computes over T memory steps and outputs answer span
-        batch_size, d_2, q_len = H_q.size()
-        _, _, p_len = H_p.size()
+        batch_size, q_len, d_2 = H_q.size()
+        _, p_len, _ = H_p.size()
 
         # might want to swap to be (batch_size, T, ...) for these arrays... idk
         s = torch.zeros(self.T, batch_size, 2 * self.hidden_size)
         p1 = torch.zeros(self.T, batch_size, p_len)
         p2 = torch.zeros(self.T, batch_size, p_len)
 
-        # H_q (batch_size, 2 * hidden_size, q_len)
-        # M (batch_size, 2 * hidden_size, p_len)
+        # H_q (batch_size, q_len, 2 * hidden_size)
+        # M (batch_size, p_len, 2 * hidden_size)
         # s[0] = sum(alpha[j] * H_q[:, :, j]) along axis 0 I think (don't sum between batches)
         # # sum parameters along the hidden size layer (our w_4 parameter)
-        alpha = torch.softmax(torch.einsum('bhq,h->bq', (H_q, self.W_4)), dim=1)  # exp(w_4 H_q_j) for each j, batch
+        alpha = torch.softmax(torch.einsum('bqh,h->bq', (H_q, self.W_4)), dim=1)  # exp(w_4 H_q_j) for each j, batch
         # alpha has shape (batch_size, q_len)
-        s[0] = torch.einsum('bq,bhq->bh', (alpha, H_q))  # sum_j \alpha_j (H_q)_j for each batch
+        s[0] = torch.einsum('bq,bqh->bh', (alpha, H_q))  # sum_j \alpha_j (H_q)_j for each batch
 
         # at time step t = 1, 2, ... T_1:
         # x_t = sum(beta[j] * M[j])
@@ -287,7 +288,7 @@ class AnswerModule(nn.Module):
 
         if self.training:  # dropout during training
             chosen_t = torch.zeros(p_len)
-            bernoulli = Bernoulli(torch.tensor([self.drop_prob] * p_len))
+            bernoulli = Bernoulli(torch.tensor([self.drop_prob] * self.T))
             while sum(chosen_t) == 0:  # while no time step are chosen, rechoose
                 chosen_t = bernoulli.sample()
         else:
@@ -301,7 +302,7 @@ class AnswerModule(nn.Module):
 
             p1[t] = torch.softmax(torch.einsum('bd,bdn->bn', (s[t], torch.matmul(self.W_6, M))), dim=1)
             s2 = torch.einsum('bn,bdn->bd', (p1[t], M))
-            s2 = torch.cat((s[t], s2), dim=1) # (batch_size, 4 * hidden_size)
+            s2 = torch.cat((s[t], s2), dim=1)  # (batch_size, 4 * hidden_size)
             p2[t] = torch.softmax(torch.einsum('bd,bdn->bn', (s2, torch.matmul(self.W_7, M))), dim=1)
             final_p1 += p1[t]
             final_p2 += p2[t]
@@ -814,8 +815,8 @@ if __name__ == "__main__":
     elif test == "AnswerModule":
         d = 128
         answer = AnswerModule(d, drop_prob, T)
-        H_p = torch.randn(batch_size, 2 * d, p_len)
-        H_q = torch.randn(batch_size, 2 * d, p_len)
+        H_p = torch.randn(batch_size, p_len, 2 * d)
+        H_q = torch.randn(batch_size, q_len, 2 * d)
         M = torch.rand(batch_size, 2 * d, p_len)
 
         log_p1, log_p2 = answer(H_p, H_q, M)
@@ -827,3 +828,8 @@ if __name__ == "__main__":
         H_q = torch.randn(batch_size, q_len, 2*128)
         H_p = torch.randn(batch_size, p_len, 2*128)
         print(memGen(H_p, H_q, p_mask=None, q_mask=None))
+    elif test == "ContextualEmbedding":
+        context = ContextualEmbedding(input_size=d, hidden_size=d, drop_prob=drop_prob, num_layers=2)
+        x = torch.randn(batch_size, p_len, d)
+        lengths = torch.randint(1, p_len + 1, (batch_size,))
+        print(context(x, lengths))
