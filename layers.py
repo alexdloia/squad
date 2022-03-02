@@ -266,8 +266,10 @@ class AnswerModule(nn.Module):
         for t in range(1, self.T):
             # beta[j] = softmax(s[t-1] @ self.W_5 @ M)
             print("st, w5", s[t].size(), self.W_5(M).size())
-            beta = torch.softmax(torch.einsum('bd,bnd->bn', (s[t], self.W_5(M))),
-                                 dim=1)  # softmax across the non-batch dimension (batch_size, p_len)
+            print(torch.unsqueeze(s[t], dim=2).size(), self.W_5(M).size())
+            w5m = torch.bmm(self.W_5(M), torch.unsqueeze(s[t], dim=2))
+            print(w5m.size())
+            beta = torch.softmax(torch.squeeze(w5m, dim=2), dim=1)  # softmax across the non-batch dimension (batch_size, p_len)
 
             x = torch.einsum('bn,bnd->bd',
                              (beta, M))  # sum beta_j M_j for all j, all batch (batch_size, 2 * hidden_size)
@@ -290,18 +292,20 @@ class AnswerModule(nn.Module):
             if not chosen_t[t]:
                 continue
 
-            p1_tmp = torch.softmax(torch.einsum('bd,bnd->bn', (s[t], self.W_6(M))), dim=1)
-            s2 = torch.einsum('bn,bnd->bd', (p1[t], M))
-            s2 = torch.cat((s[t], s2), dim=1)  # (batch_size, 4 * hidden_size)
+            w6_tmp = torch.bmm(self.W_6(M), torch.unsqueeze(s[t], dim=2))
+            p1_tmp = torch.softmax(torch.squeeze(w6_tmp, dim=2), dim=1)
+            s2 = torch.bmm(torch.unsqueeze(p1_tmp, dim=1), M)
+            s2 = torch.cat((s[t], torch.squeeze(s2, dim=1)), dim=1)  # (batch_size, 4 * hidden_size)
 
-            p2_tmp = torch.softmax(torch.einsum('bd,bnd->bn', (s2, self.W_7(M))), dim=1)
+            w7_tmp = torch.bmm(self.W_7(M), torch.unsqueeze(s2, dim=2))
+            p2_tmp = torch.softmax(torch.squeeze(w7_tmp, dim=2), dim=1)
             p1 += p1_tmp
             p2 += p2_tmp
 
         p1 /= sum(chosen_t)  # normalize our probabilities by how many distributions we summed
         p2 /= sum(chosen_t)
 
-        return final_p1.log(), final_p2.log()  # return as log probabilities for their code scaffolding
+        return p1.log(), p2.log()  # return as log probabilities for their code scaffolding
 
 
 class CustomEmbedding(nn.Module):
