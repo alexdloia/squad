@@ -22,7 +22,7 @@ from models import BiDAF, SCR
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from ujson import load as json_load
-from util import collate_fn, SQuAD
+from util import collate_fn, SQuAD, NUM_CANDIDATES
 
 import time
 
