@@ -137,19 +137,20 @@ class DotProductAttention(nn.Module):
         self.P= nn.Linear(in_features=hidden_size, out_features=hidden_size, bias=True)
         self.attn_drop = nn.Dropout(drop_prob)
 
-        nn.init.xavier_uniform_(self.Qkey.weight)
-        nn.init.xavier_uniform_(self.P.weight)
-
         self.relu = nn.ReLU()
 
-    def forward(self, H_qhat, H_phat):
+    def forward(self, H_qhat, H_phat, q_mask):
 
         P = self.relu(self.P(H_phat)) # shape (batch_size, p_len, hidden_size)
         # print(P.shape)
         Qkey = self.relu(self.Qkey(H_qhat)) # shape (batch_size, q_len, hidden_size)
         # print(P.shape)
         # print(Qkey.shape)
-        C = torch.nn.functional.softmax(torch.matmul(Qkey, torch.transpose(P, 1, 2)), dim=1) # shape (batch_size, q_len, p_len)
+        # C = torch.nn.functional.softmax(torch.matmul(Qkey, torch.transpose(P, 1, 2)), dim=1) # shape (batch_size, q_len, p_len)
+        dp = torch.matmul(Qkey, torch.transpose(P,1,2))
+        print(dp.shape)
+        print(q_mask.shape)
+        C = masked_softmax(dp, mask=q_mask, dim=1)
         return C
 
 
@@ -180,7 +181,7 @@ class MemoryGeneration(nn.Module):
         # print(H_phat.shape)
         # assert ValueError("Done with SANFeedForward")
 
-        C = self.dropout(self.f_attn(H_qhat, H_phat)) # (batch_size, q_len, p_len)
+        C = self.dropout(self.f_attn(H_qhat, H_phat, q_mask)) # (batch_size, q_len, p_len)
 
         # attention from https://arxiv.org/pdf/1706.03762.pdf
         # I think that this is just softmax(Q @ K^T / sqrt(d_k)) @ V for query, key, value
@@ -816,7 +817,8 @@ if __name__ == "__main__":
         p_len = 30
         H_q = torch.randn(batch_size, q_len, 2*128)
         H_p = torch.randn(batch_size, p_len, 2*128)
-        print(memGen(H_p, H_q, p_mask=None, q_mask=None))
+        q_mask = torch.ones((batch_size, q_len, 1))  # (batch_size, c_len, 1)
+        print(memGen(H_p, H_q, p_mask=q_mask, q_mask=q_mask))
     elif test == "ContextualEmbedding":
         context = ContextualEmbedding(input_size=d, hidden_size=d, drop_prob=drop_prob, num_layers=2)
         x = torch.randn(batch_size, p_len, d)
