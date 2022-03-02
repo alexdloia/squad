@@ -45,6 +45,7 @@ class LexiconEncoder(nn.Module):
         self.hidden_size = hidden_size
         self.drop_prob = drop_prob
         self.embed = nn.Embedding.from_pretrained(word_vectors)
+        self.posnertagging = POSNERTagging()
         self.w0 = nn.Linear(300, 280, bias=False)
         self.g_func = nn.Sequential(nn.Linear(300, 280, bias=False), nn.ReLU())
 
@@ -53,7 +54,7 @@ class LexiconEncoder(nn.Module):
         embed = self.embed(pw_idxs)  # (batch_size, p_len, embed_size)
 
         # step 2 & 3: get POS and NER tagging for x
-        pos, ner = POSNERTagging()(pw_idxs, p_mask)  # (batch_size, p_len, 9), (batch_size, p_len, 8)
+        pos, ner = self.posnertagging(pw_idxs, p_mask)  # (batch_size, p_len, 9), (batch_size, p_len, 8)
 
         # step 4: get binary exact match feature
         # this feature is 3 dimensions for 3 kinds of matching between the pw_idxs and the qw_idxs
