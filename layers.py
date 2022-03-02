@@ -210,7 +210,7 @@ class MemoryGeneration(nn.Module):
         U_phat = torch.matmul(self.dropout(U_phat), U_p)  #apply diag (batch_size, p_len, hidden_size)
 
         U = torch.cat((U_p, U_phat), dim=-1) # (batch_size, p_len, 8*hidden_size)
-        M = self.lstm(U)
+        M, _ = self.lstm(U)
 
         return M
         # U_phat[diagonal] = 0 # zero out all the values on the diagonal. torch.diagonal might help
