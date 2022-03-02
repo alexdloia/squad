@@ -111,37 +111,18 @@ class SANFeedForward(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.drop_prob = drop_prob
-<<<<<<< HEAD
         self.W_1 = nn.Linear(input_size, hidden_size)
 
         if num_layers == 2:
             self.W_2 = nn.Linear(hidden_size, hidden_size)
-=======
-        self.l1 = nn.Linear(in_features=input_size, out_features=hidden_size, bias=True)
-
-        if num_layers == 2:
-            self.l2 = nn.Linear(in_features=hidden_size, out_features=hidden_size, bias=True)
-            for weight in (self.l1, self.l2):
-                nn.init.xavier_uniform_(weight)
-        else:
-            nn.init.xavier_uniform_(self.l1.weight)
->>>>>>> 844c488f56e7bcb3012c3180359a074488f0e864
 
         self.relu = nn.ReLU()
 
     def forward(self, x):
-<<<<<<< HEAD
         x = self.W_1(x)
         x = self.relu(x)
         if self.num_layers == 2:
             x = self.W_2(x)
-=======
-        # x (B, a, b)
-        # w_1 (d, a)
-        x = self.relu(self.l1(x))
-        if self.num_layers == 2:
-            x = self.relu(self.l2(x))
->>>>>>> 844c488f56e7bcb3012c3180359a074488f0e864
         return x
 
 class DotProductAttention(nn.Module):
@@ -223,7 +204,7 @@ class MemoryGeneration(nn.Module):
         U_phat = torch.nn.functional.softmax(dp, dim=1) # (batch_size, p_len, p_len)
         # U_phat = U_phat.fill_diagonal_(0)
         # print(U_phat.shape)
-        mask = torch.eye(U_phat.shape[1]).repeat(U_phat.shape[0], 1, 1).bool() 
+        mask = torch.eye(U_phat.shape[1]).repeat(U_phat.shape[0], 1, 1).bool()
         U_phat[mask] = 0
 
         U_phat = torch.matmul(self.dropout(U_phat), U_p)  #apply diag (batch_size, p_len, hidden_size)
