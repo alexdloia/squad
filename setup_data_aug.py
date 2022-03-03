@@ -245,8 +245,8 @@ def build_data_aug_features(args, examples, data_type, out_file, tag2idx_dict, e
         context_len = len(context_tokens)
         ques_tokens = example["ques_tokens"]
 
-        pos_idx = np.full([para_limit], tag2idx_dict['XX'], dtype=np.int32)
-        ner_idx = np.full([para_limit], ent2idx_dict[''], dtype=np.int32)
+        pos_idx = np.full([para_limit], len(tag2idx_dict) - 1, dtype=np.int32)
+        ner_idx = np.full([para_limit], len(ent2idx_dict), dtype=np.int32)
         bem_idx = np.zeros([para_limit, 3], dtype=np.int32)
 
         # POS

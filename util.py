@@ -21,6 +21,8 @@ from collections import Counter
 
 import time
 
+import util
+
 NUM_CANDIDATES = 20
 NUM_POS_TAGS = 50
 NUM_NER_TAGS = 19
@@ -36,8 +38,10 @@ tag2idx[''] = tag2idx['XX']
 ent_list = [name[2:] for name in nlp.entity.move_names[:18]] + ['']
 ent2idx = {ent: idx for idx, ent in enumerate(ent_list)}
 
+
 def get_lens_from_mask(mask):
     return mask.sum(dim=-1)
+
 
 def indices_to_pos_ner_one_hots(idxs, mask):
     """
@@ -240,16 +244,20 @@ class SQuAD(data.Dataset):
         use_v2 (bool): Whether to use SQuAD 2.0 questions. Otherwise only use SQuAD 1.1.
     """
 
-    def __init__(self, data_path, use_v2=True):
+    def __init__(self, data_path, data_aug_path, use_v2=True):
         super(SQuAD, self).__init__()
 
         dataset = np.load(data_path)
+        data_aug_set = np.load(data_aug_path)
         self.context_idxs = torch.from_numpy(dataset['context_idxs']).long()
         self.context_char_idxs = torch.from_numpy(dataset['context_char_idxs']).long()
         self.question_idxs = torch.from_numpy(dataset['ques_idxs']).long()
         self.question_char_idxs = torch.from_numpy(dataset['ques_char_idxs']).long()
         self.y1s = torch.from_numpy(dataset['y1s']).long()
         self.y2s = torch.from_numpy(dataset['y2s']).long()
+        self.pos_idxs = torch.from_numpy(data_aug_set['pos_idxs']).long()
+        self.ner_idxs = torch.from_numpy(data_aug_set['ner_idxs']).long()
+        self.bem_idxs = torch.from_numpy(data_aug_set['bem_idxs']).long()
 
         if use_v2:
             # SQuAD 2.0: Use index 0 for no-answer token (token 1 = OOV)
@@ -278,6 +286,9 @@ class SQuAD(data.Dataset):
                    self.question_char_idxs[idx],
                    self.y1s[idx],
                    self.y2s[idx],
+                   self.pos_idxs[idx],
+                   self.ner_idxs[idx],
+                   self.bem_idxs[idx],
                    self.ids[idx])
 
         return example
@@ -324,10 +335,17 @@ def collate_fn(examples):
             padded[i, :height, :width] = seq[:height, :width]
         return padded
 
+    def merge_2d_no_pad(matrices, dtype=torch.int64):
+        height, width = matrices[0].size()
+        padded = torch.zeros(len(matrices), height, width, dtype=dtype)
+        for i, seq in enumerate(matrices):
+            padded[i, :height, :width] = seq[:height, :width]
+        return padded
+
     # Group by tensor type
     context_idxs, context_char_idxs, \
     question_idxs, question_char_idxs, \
-    y1s, y2s, ids = zip(*examples)
+    y1s, y2s, pos_idxs, ner_idxs, bem_idxs, ids = zip(*examples)
 
     # Merge into batch tensors
     context_idxs = merge_1d(context_idxs)
@@ -336,11 +354,14 @@ def collate_fn(examples):
     question_char_idxs = merge_2d(question_char_idxs)
     y1s = merge_0d(y1s)
     y2s = merge_0d(y2s)
+    pos_idxs = merge_1d(pos_idxs, pad_value=util.NUM_POS_TAGS)
+    ner_idxs = merge_1d(ner_idxs, pad_value=util.NUM_NER_TAGS)
+    bem_idxs = merge_2d_no_pad(bem_idxs)
     ids = merge_0d(ids)
 
     return (context_idxs, context_char_idxs,
             question_idxs, question_char_idxs,
-            y1s, y2s, ids)
+            y1s, y2s, pos_idxs, ner_idxs, bem_idxs, ids)
 
 
 class AverageMeter:
