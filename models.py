@@ -62,13 +62,13 @@ class SAN(nn.Module):
         self.answer = layers.AnswerModule(hidden_size=hidden_size,
                                           drop_prob=drop_prob, T=T)
 
-    def forward(self, pw_idxs, qw_idxs):
+    def forward(self, pw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs):
         p_mask = torch.zeros_like(pw_idxs) != pw_idxs  # (batch_size, p_len)
         q_mask = torch.zeros_like(qw_idxs) != qw_idxs  # (batch_size, q_len)
 
         p_len, q_len = p_mask.sum(-1), q_mask.sum(-1)
 
-        R_p, R_q = self.encode(pw_idxs, qw_idxs, p_mask, q_mask)  # (batch_size, p_len, 600), (batch_size, q_len, 300)
+        R_p, R_q = self.encode(pw_idxs, qw_idxs, p_mask, q_mask, pos_idxs, ner_idxs, bem_idxs)  # (batch_size, p_len, 600), (batch_size, q_len, 300)
 
         E_p = self.ffn_p(R_p)  # (batch_size, p_len, 600) -> (batch_size, p_len, hidden_size) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
         E_q = self.ffn_q(R_q)  # (batch_size, q_len, 300) -> (batch_size, q_len, hidden_size) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2

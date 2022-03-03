@@ -13,18 +13,18 @@ import torch.nn.functional as F
 
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from util import masked_softmax, tag_list, ent_list, \
-    get_binary_exact_match_features, indices_to_pos_ner_one_hots, get_lens_from_mask
+import util
+from util import masked_softmax, get_lens_from_mask
 from torch.distributions.bernoulli import Bernoulli
 
 
 class POSNERTagging(nn.Module):
     def __init__(self, pos_emb_size=9, ner_emb_size=8):
         super(POSNERTagging, self).__init__()
-        self.pos_map = nn.Linear(len(tag_list), pos_emb_size)
-        self.ner_map = nn.Linear(len(ent_list), ner_emb_size)
+        self.pos_map = nn.Linear(util.NUM_POS_TAGS, pos_emb_size)
+        self.ner_map = nn.Linear(util.NUM_NER_TAGS, ner_emb_size)
 
-    def forward(self, idxs, mask):
+    def forward(self, pos_idxs, ner_idxs):
         """
 
         Args:
@@ -34,8 +34,8 @@ class POSNERTagging(nn.Module):
         Returns: POS embedding
 
         """
-        pos_one_hots, ner_one_hots = indices_to_pos_ner_one_hots(idxs, mask)
-        return self.pos_map(pos_one_hots.to(torch.float32)), self.ner_map(ner_one_hots.to(torch.float32))
+        pos_one_hots, ner_one_hots = F.one_hot(pos_idxs, num_classes=util.NUM_POS_TAGS).to(torch.float32), F.one_hot(ner_idxs, num_classes=util.NUM_NER_TAGS).to(torch.float32)
+        return self.pos_map(pos_one_hots), self.ner_map(ner_one_hots)
 
 
 class LexiconEncoder(nn.Module):
@@ -48,16 +48,16 @@ class LexiconEncoder(nn.Module):
         self.w0 = nn.Linear(300, 280, bias=False)
         self.g_func = nn.Sequential(nn.Linear(300, 280, bias=False), nn.ReLU())
 
-    def forward(self, pw_idxs, qw_idxs, p_mask, q_mask):
+    def forward(self, pw_idxs, qw_idxs, p_mask, q_mask, pos_idxs, ner_idxs, bem_idxs):
         # step 1: embed x (batch_size, p_len)
         embed = self.embed(pw_idxs)  # (batch_size, p_len, embed_size)
 
         # step 2 & 3: get POS and NER tagging for x
-        pos, ner = self.posnertagging(pw_idxs, p_mask)  # (batch_size, p_len, 9), (batch_size, p_len, 8)
+        pos, ner = self.posnertagging(pos_idxs, ner_idxs)  # (batch_size, p_len, 9), (batch_size, p_len, 8)
 
         # step 4: get binary exact match feature
         # this feature is 3 dimensions for 3 kinds of matching between the pw_idxs and the qw_idxs
-        bem = get_binary_exact_match_features(pw_idxs, qw_idxs, p_mask, q_mask)  # (batch_size, p_len, 3)
+        bem = bem_idxs  # (batch_size, p_len, 3)
         # remember that p_mask is a mask over what words are actually there!!
 
         # step 5: get question-enhanced word embedding. requires some math

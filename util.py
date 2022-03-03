@@ -15,98 +15,18 @@ import torch.utils.data as data
 import tqdm
 import numpy as np
 import ujson as json
-import spacy
 
 from collections import Counter
 
 import time
 
-import util
-
 NUM_CANDIDATES = 20
 NUM_POS_TAGS = 50
 NUM_NER_TAGS = 19
-word2idx = json.load(open("./data/word2idx.json", "r"))
-idx2word = {v: k for k, v in word2idx.items()}
-nlp = spacy.load("en_core_web_sm")
-# POS tagging
-tag_list = nlp.get_pipe("tagger").labels
-tag2idx = {tag: idx for idx, tag in enumerate(tag_list)}
-tag2idx[''] = tag2idx['XX']
-
-# NER
-ent_list = [name[2:] for name in nlp.entity.move_names[:18]] + ['']
-ent2idx = {ent: idx for idx, ent in enumerate(ent_list)}
 
 
 def get_lens_from_mask(mask):
     return mask.sum(dim=-1)
-
-
-def indices_to_pos_ner_one_hots(idxs, mask):
-    """
-
-    Args:
-        idxs: torch.Tensor (batch_size, seq_len)
-        mask: torch.Tensor (batch_size, seq_len)
-
-    Returns: POS and NER one hots
-    """
-    batch_size, seq_len = idxs.size()
-    sent_lens = get_lens_from_mask(mask)  # (batch_size,)
-    pos_one_hots = idxs.new_zeros((batch_size, seq_len))  # maintain device
-    ner_one_hots = idxs.new_zeros((batch_size, seq_len))  # maintain device
-    for b_idx in range(batch_size):
-        sent_len = sent_lens[b_idx]
-        sent_idxs = idxs[b_idx, :sent_len]  # (sent_len,)
-        sent = " ".join([idx2word[sent_idxs[i].item()] for i in range(sent_len)])
-        doc = nlp(sent)
-        # POS
-        tag_idxs = idxs.new_full((seq_len,), tag2idx['XX'])
-        tag_idxs[:sent_len] = idxs.new_tensor([tag2idx[tok.tag_] for tok in doc])
-        pos_one_hots[b_idx, :] = tag_idxs
-        # NER
-        ent_idxs = idxs.new_full((seq_len,), ent2idx[''])
-        ent_idxs[:sent_len] = idxs.new_tensor([ent2idx[tok.ent_type_] for tok in doc])
-        ner_one_hots[b_idx, :] = ent_idxs
-
-    return F.one_hot(pos_one_hots, num_classes=len(tag_list)), F.one_hot(ner_one_hots, num_classes=len(ent_list))
-
-
-def get_binary_exact_match_features(pw_idxs, qw_idxs, p_mask, q_mask):
-    """
-
-    Args:
-        pw_idxs: torch.Tensor (batch_size, p_len)
-        qw_idxs: torch.Tensor (batch_size, q_len)
-        p_mask: torch.Tensor (batch_size, p_len)
-        q_mask: torch.Tensor (batch_size, q_len)
-
-    Returns: binary_exact_match_features (batch_size, p_len, 3)
-
-    """
-    batch_size, p_len = pw_idxs.size()
-    p_sent_lens = get_lens_from_mask(p_mask)  # (batch_size,)
-    q_sent_lens = get_lens_from_mask(q_mask)  # (batch_size,)
-    binary_exact_match_features = pw_idxs.new_zeros((batch_size, p_len, 3)).long()
-    for b_idx in range(batch_size):
-        p_sent_len = p_sent_lens[b_idx]
-        q_sent_len = q_sent_lens[b_idx]
-        p_sent_idxs = pw_idxs[b_idx, :p_sent_len]
-        p_words = [idx2word[p_sent_idxs[i].item()] for i in range(p_sent_len)]
-        q_sent_idxs = qw_idxs[b_idx, :q_sent_len]
-        q_sent = " ".join([idx2word[q_sent_idxs[i].item()] for i in range(q_sent_len)])
-        qdoc = nlp(q_sent)
-        p_bools = pw_idxs.new_full((p_sent_len, 3), False, dtype=torch.bool)
-        for tok in qdoc:
-            stacked = pw_idxs.new_tensor(
-                [[word == tok.text, word == tok.text.lower(), word == tok.lemma_] for word in p_words],
-                dtype=torch.bool)  # (p_sent_len, [orig, lower, lemma])
-            p_bools = p_bools | stacked
-        binary_exact_match_features[b_idx, :p_sent_len, :] = p_bools.long()
-
-    return binary_exact_match_features
-
 
 def convert_probs(logprob_chunks, candidates, c_len, c_mask, device):
     """
@@ -197,7 +117,7 @@ def get_candidates_simple(p1, p2, num_candidates):
                                     dtype=torch.long)
     candidates[:, 1] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p2, num_candidates, replacement=True)),
                                     dtype=torch.long)
-    candidates[:, :], _ = torch.sort(candidates, axis=1)
+    candidates[:, :], _ = torch.sort(candidates, dim=1)
 
     return candidates
 
@@ -214,7 +134,7 @@ def chunk_discretize(prob_chunks, candidates):
         ends: (batch_size,) tensor of the end indices of the most likely chunks
     """
     batch_size, _ = prob_chunks.size()
-    best_chunks = torch.argmax(prob_chunks, axis=1)
+    best_chunks = torch.argmax(prob_chunks, dim=1)
     starts = candidates[range(batch_size), best_chunks, 0]
     ends = candidates[range(batch_size), best_chunks, 1]
 
@@ -354,8 +274,8 @@ def collate_fn(examples):
     question_char_idxs = merge_2d(question_char_idxs)
     y1s = merge_0d(y1s)
     y2s = merge_0d(y2s)
-    pos_idxs = merge_1d(pos_idxs, pad_value=util.NUM_POS_TAGS)
-    ner_idxs = merge_1d(ner_idxs, pad_value=util.NUM_NER_TAGS)
+    pos_idxs = merge_1d(pos_idxs, pad_value=NUM_POS_TAGS)
+    ner_idxs = merge_1d(ner_idxs, pad_value=NUM_NER_TAGS)
     bem_idxs = merge_2d_no_pad(bem_idxs)
     ids = merge_0d(ids)
 
@@ -952,8 +872,4 @@ def compute_f1(a_gold, a_pred):
 
 
 if __name__ == "__main__":
-    p_test_idxs = torch.tensor([[14, 23, 5, 3, 0, 0], [14, 22, 6, 8, 56, 0]])
-    p_test_mask = torch.tensor([[True, True, True, True, False, False], [True, True, True, True, True, False]])
-    q_test_idxs = torch.tensor([[14, 24, 4, 0, 0], [13, 22, 7, 8, 9]])
-    q_test_mask = torch.tensor([[True, True, True, False, False], [True, True, True, True, True]])
-    print(get_binary_exact_match_features(p_test_idxs, q_test_idxs, p_test_mask, q_test_mask))
+    pass

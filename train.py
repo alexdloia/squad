@@ -117,10 +117,13 @@ def main(args):
         log.info(f'Starting epoch {epoch}...')
         with torch.enable_grad(), \
                 tqdm(total=len(train_loader.dataset)) as progress_bar:
-            for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in train_loader:
+            for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, pos_idxs, ner_idxs, bem_idxs, ids in train_loader:
                 # Setup for forward
                 cw_idxs = cw_idxs.to(device)
                 qw_idxs = qw_idxs.to(device)
+                pos_idxs = pos_idxs.to(device)
+                ner_idxs = ner_idxs.to(device)
+                bem_idxs = bem_idxs.to(device)
                 batch_size = cw_idxs.size(0)
                 optimizer.zero_grad()
 
@@ -128,14 +131,14 @@ def main(args):
                     candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), NUM_CANDIDATES, device, train=True)
                     chunk_y.to(device)
 
-                    logprob_chunks = model(cw_idxs, qw_idxs, candidates)
+                    logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates)
 
                     loss = F.nll_loss(logprob_chunks, chunk_y)
                     loss_val = loss.item()
 
                 else:
                     # Forward
-                    log_p1, log_p2 = model(cw_idxs, qw_idxs)
+                    log_p1, log_p2 = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
                     y1, y2 = y1.to(device), y2.to(device)
                     loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
                     loss_val = loss.item()
