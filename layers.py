@@ -22,21 +22,20 @@ class POSNERTagging(nn.Module):
     def __init__(self, pos_emb_size=9, ner_emb_size=8):
         super(POSNERTagging, self).__init__()
         # maybe switch to nn.Embedding
-        self.pos_map = nn.Linear(util.NUM_POS_TAGS, pos_emb_size)
-        self.ner_map = nn.Linear(util.NUM_NER_TAGS, ner_emb_size)
+        self.pos_emb = nn.Embedding(util.NUM_POS_TAGS, pos_emb_size)
+        self.ner_emb = nn.Embedding(util.NUM_NER_TAGS, ner_emb_size)
 
     def forward(self, pos_idxs, ner_idxs):
         """
 
         Args:
-            idxs: (batch_size, seq_len)
-            mask: (batch_size, seq_len)
+            pos_idxs: (batch_size, seq_len)
+            ner_idxs: (batch_size, seq_len)
 
-        Returns: POS embedding
+        Returns: POS and NER embeddings
 
         """
-        pos_one_hots, ner_one_hots = F.one_hot(pos_idxs, num_classes=util.NUM_POS_TAGS).to(torch.float32), F.one_hot(ner_idxs, num_classes=util.NUM_NER_TAGS).to(torch.float32)
-        return self.pos_map(pos_one_hots), self.ner_map(ner_one_hots)
+        return self.pos_emb(pos_idxs), self.ner_emb(ner_idxs)
 
 
 class LexiconEncoder(nn.Module):
