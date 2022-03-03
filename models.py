@@ -69,22 +69,17 @@ class SAN(nn.Module):
         p_len, q_len = p_mask.sum(-1), q_mask.sum(-1)
 
         R_p, R_q = self.encode(pw_idxs, qw_idxs, p_mask, q_mask)  # (batch_size, p_len, 600), (batch_size, q_len, 300)
-        print(f"Hidden size: {self.hidden_size}")
-        print(f"R_p {R_p.size()} R_q {R_q.size()}")
+
         E_p = self.ffn_p(R_p)  # (batch_size, p_len, 600) -> (batch_size, p_len, hidden_size) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
         E_q = self.ffn_q(R_q)  # (batch_size, q_len, 300) -> (batch_size, q_len, hidden_size) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
 
-        print(f"E_p {E_p.size()}, E_q {E_q.size()}")
         H_p = self.context(E_p, p_len)  # (batch_size, p_len, 2 * hidden_size)
         H_q = self.context(E_q, q_len)  # (batch_size, q_len, 2 * hidden_size)
 
-        print(f"H_p {H_p.size()}, H_q {H_q.size()}")
-        p_mask_3d = torch.unsqueeze(p_mask, dim=2)
-        q_mask_3d = torch.unsqueeze(q_mask, dim=2)
+        p_mask_3d = torch.unsqueeze(p_mask, dim=2) # (batch_size, p_len, 1)
+        q_mask_3d = torch.unsqueeze(q_mask, dim=2) # (batch_size, q_len, 1)
         M = self.memory(H_p, H_q, p_mask_3d, q_mask_3d)  # (batch_size, p_len, 2 * hidden_size)
 
-        print(f"M {M.size()}")
-        # at least one step of the answer module MUST be active during training.
         p1, p2 = self.answer(H_p, H_q, M)  # 2 tensors each of shape (batch_size, p_len)
 
         return p1, p2
