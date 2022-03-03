@@ -86,12 +86,13 @@ def convert_idx(text, tokens):
     current = 0
     spans = []
     for token in tokens:
-        current = text.find(token, current)
+        token_text = token[0]
+        current = text.find(token_text, current)
         if current < 0:
-            print(f"Token {token} cannot be found")
+            print(f"Token {token_text} cannot be found")
             raise Exception()
-        spans.append((current, current + len(token)))
-        current += len(token)
+        spans.append((current, current + len(token_text)))
+        current += len(token_text)
     return spans
 
 
@@ -101,7 +102,7 @@ def process_file(filename, data_type):
     total = 0
     with open(filename, "r") as fh:
         source = json.load(fh)
-        for article in tqdm(source["data"]):
+        for article in tqdm(source["data"][:2]):
             for para in article["paragraphs"]:
                 context = para["context"].replace(
                     "''", '" ').replace("``", '" ')
@@ -109,8 +110,18 @@ def process_file(filename, data_type):
                     total += 1
                     ques = qa["question"].replace(
                         "''", '" ').replace("``", '" ')
+                    answer_ends = []
+                    answer_starts = []
+                    for answer in qa["answers"]:
+                        answer_text = answer["text"]
+                        answer_start = answer['answer_start']
+                        answer_end = answer_start + len(answer_text)
+                        answer_starts.append(answer_start)
+                        answer_ends.append(answer_end)
                     example = {"context": context,
                                "ques": ques,
+                               "answer_ends": answer_ends,
+                               "answer_starts": answer_starts,
                                "id": total}
                     examples.append(example)
         print(f"{len(examples)} questions in total")
@@ -118,9 +129,27 @@ def process_file(filename, data_type):
     contexts_tokens = batch_word_tokenize(contexts)
     questions = [example["ques"] for example in examples]
     questions_tokens = batch_word_tokenize(questions, contexts=False)
+    print("Getting y1s and y2s...")
     for i, example in enumerate(examples):
-        example["context_tokens"] = contexts_tokens[i]
+        context_tokens = contexts_tokens[i]
+        example["context_tokens"] = context_tokens
         example["ques_tokens"] = questions_tokens[i]
+        context = example["context"]
+        spans = convert_idx(context, context_tokens)
+        y1s = []
+        y2s = []
+        for answer_start, answer_end in zip(example["answer_starts"], example["answer_ends"]):
+            answer_span = []
+            for idx, span in enumerate(spans):
+                if not (answer_end <= span[0] or answer_start >= span[1]):
+                    answer_span.append(idx)
+            y1, y2 = answer_span[0], answer_span[-1]
+            y1s.append(y1)
+            y2s.append(y2)
+        example["y1s"] = y1s
+        example["y2s"] = y2s
+        del example["answer_starts"]
+        del example["answer_ends"]
         del example["context"]
         del example["ques"]
     return examples
@@ -229,7 +258,6 @@ def build_data_aug_features(args, examples, data_type, out_file, tag2idx_dict, e
     ans_limit = args.ans_limit
 
     def drop_example(ex, is_test_=False):
-        is_test_ = True
         if is_test_:
             drop = False
         else:
@@ -288,9 +316,9 @@ def build_data_aug_features(args, examples, data_type, out_file, tag2idx_dict, e
         ids.append(example["id"])
 
     np.savez(out_file,
-             pos_idxs=pos_idxs,
-             ner_idxs=ner_idxs,
-             bem_idxs=bem_idxs,
+             pos_idxs=np.array(pos_idxs),
+             ner_idxs=np.array(ner_idxs),
+             bem_idxs=np.array(bem_idxs),
              ids=np.array(ids))
     print(f"Built {total} / {total_} instances of features in total")
     meta["total"] = total

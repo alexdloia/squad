@@ -21,6 +21,7 @@ from torch.distributions.bernoulli import Bernoulli
 class POSNERTagging(nn.Module):
     def __init__(self, pos_emb_size=9, ner_emb_size=8):
         super(POSNERTagging, self).__init__()
+        # maybe switch to nn.Embedding
         self.pos_map = nn.Linear(util.NUM_POS_TAGS, pos_emb_size)
         self.ner_map = nn.Linear(util.NUM_NER_TAGS, ner_emb_size)
 
