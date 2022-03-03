@@ -13,7 +13,6 @@ import torch.nn.functional as F
 
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-import layers
 from util import masked_softmax, tag_list, ent_list, \
     get_binary_exact_match_features, indices_to_pos_ner_one_hots, get_lens_from_mask
 from torch.distributions.bernoulli import Bernoulli

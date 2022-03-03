@@ -185,6 +185,15 @@ def add_common_args(parser):
     parser.add_argument('--test_record_file',
                         type=str,
                         default='./data/test.npz')
+    parser.add_argument('--train_data_aug_file',
+                        type=str,
+                        default='./data/train_data_aug.npz')
+    parser.add_argument('--dev_data_aug_file',
+                        type=str,
+                        default='./data/dev_data_aug.npz')
+    parser.add_argument('--test_data_aug_file',
+                        type=str,
+                        default='./data/test_data_aug.npz')
     parser.add_argument('--word_emb_file',
                         type=str,
                         default='./data/word_emb.json')

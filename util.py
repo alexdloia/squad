@@ -22,7 +22,8 @@ from collections import Counter
 import time
 
 NUM_CANDIDATES = 20
-
+NUM_POS_TAGS = 50
+NUM_NER_TAGS = 19
 word2idx = json.load(open("./data/word2idx.json", "r"))
 idx2word = {v: k for k, v in word2idx.items()}
 nlp = spacy.load("en_core_web_sm")
