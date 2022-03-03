@@ -114,7 +114,6 @@ class SANFeedForward(nn.Module):
 
         if num_layers == 2:
             self.W_2 = nn.Linear(hidden_size, hidden_size)
-
         self.relu = nn.ReLU()
 
     def forward(self, x):
@@ -135,21 +134,13 @@ class DotProductAttention(nn.Module):
         super(DotProductAttention, self).__init__()
         self.Qkey = nn.Linear(in_features=hidden_size, out_features=hidden_size, bias=True)
         self.P = nn.Linear(in_features=hidden_size, out_features=hidden_size, bias=True)
-        self.attn_drop = nn.Dropout(drop_prob)
-
-        nn.init.xavier_uniform_(self.Qkey.weight)
-        nn.init.xavier_uniform_(self.P.weight)
-
         self.relu = nn.ReLU()
 
     def forward(self, H_qhat, H_phat, q_mask):
         P = self.relu(self.P(H_phat))  # shape (batch_size, p_len, hidden_size)
-        # print(P.shape)
         Qkey = self.relu(self.Qkey(H_qhat))  # shape (batch_size, q_len, hidden_size)
-        # print(P.shape)
-        # print(Qkey.shape)
-        pt = torch.transpose(P, 1, 2)
-        a = torch.matmul(Qkey, pt)
+        pt = torch.transpose(P, 1, 2) # shape (batch_size, hidden_size, p_len)
+        a = torch.matmul(Qkey, pt) # shape (batch_size, q_len, p_len)
         C = masked_softmax(a, dim=1, mask=q_mask)  # shape (batch_size, q_len, p_len)
         return C
 
@@ -164,68 +155,40 @@ class MemoryGeneration(nn.Module):
         self.ffn_p = SANFeedForward(2 * hidden_size, hidden_size, 1, drop_prob)
         self.dropout = nn.Dropout(drop_prob)
         self.f_attn = DotProductAttention(hidden_size, drop_prob)
-        # I think this is the right LSTM, but not sure
         self.lstm = nn.LSTM(8 * hidden_size, hidden_size, num_layers, batch_first=True, bidirectional=True,
                             dropout=drop_prob if num_layers > 1 else 0.)
-
         self.Up1 = nn.Linear(in_features=4 * hidden_size, out_features=4 * hidden_size, bias=True)
         self.Up2 = nn.Linear(in_features=4 * hidden_size, out_features=4 * hidden_size, bias=True)
         self.relu = nn.ReLU()
 
     def forward(self, H_p, H_q, p_mask, q_mask):
-        # construct working memory summary of information from P and Q
-        H_qhat = self.ffn_q(H_q)  # (batch_size, q_len, hidden_size) I think
-        H_phat = self.ffn_p(H_p)  # (batch_size, p_len, hidden_size) I think
-        _, p_len, _ = H_p.size()
-
-        # print(H_qhat.shape)
-        # print(H_phat.shape)
-        # assert ValueError("Done with SANFeedForward")
+        H_qhat = self.ffn_q(H_q)  # (batch_size, q_len, hidden_size) 
+        H_phat = self.ffn_p(H_p)  # (batch_size, p_len, hidden_size)
+        # _, p_len, _ = H_p.size()
 
         C = self.dropout(self.f_attn(H_qhat, H_phat, q_mask))  # (batch_size, q_len, p_len)
-
         # attention from https://arxiv.org/pdf/1706.03762.pdf
-        # I think that this is just softmax(Q @ K^T / sqrt(d_k)) @ V for query, key, value
-        # print("C shape", C.shape)
 
-        ct = torch.transpose(C, 1, 2)
-        q = torch.matmul(ct, H_q)  # (batch_size, p_len, 2*hidden_size)
-        # print("Q shape", q.shape)
-        # print(H_p.shape)
+        Ct = torch.transpose(C, 1, 2) # (batch_size, p_len, q_len)
+        dp_att = torch.matmul(Ct, H_q)  # (batch_size, p_len, 2*hidden_size)
+        U_p = torch.cat((H_p, dp_att), dim=-1)  # (batch_size, p_len, 4*hidden_size)
 
-        U_p = torch.cat((H_p, q), dim=-1)  # (batch_size, p_len, 4*hidden_size)
-
-        # print("U_p", U_p.shape)
         U_p1 = self.Up1(U_p)  # (batch_size, p_len, 4*hidden_size)
         U_p2 = self.Up2(U_p)  # (batch_size, p_len, 4*hidden_size)
         U_p2 = torch.transpose(U_p2, 1, 2)
 
-        # print(U_p1.shape)
-        # print(U_p2.shape)
-        dp = U_p1 @ U_p2  # (batch_size, p_len, p_len)
+        U_phat = U_p1 @ U_p2  # (batch_size, p_len, p_len)
 
-        # print(dp.shape)
-        U_phat = masked_softmax(dp, dim=1, mask=p_mask)  # (batch_size, p_len, p_len)
-        # U_phat = U_phat.fill_diagonal_(0)
-        # print(U_phat.shape)
-        # zero diagonal without inplace operations
+        U_phat = masked_softmax(U_phat, dim=1, mask=p_mask)  # (batch_size, p_len, p_len)
+
         U_phat = U_phat * (1 - torch.eye(p_len).to(U_phat.device))
 
-        U_phat = torch.matmul(self.dropout(U_phat), U_p)  # apply diag (batch_size, p_len, hidden_size)
+        U_phat = torch.matmul(self.dropout(U_phat), U_p)  # (batch_size, p_len, hidden_size)
 
         U = torch.cat((U_p, U_phat), dim=-1)  # (batch_size, p_len, 8*hidden_size)
         M, _ = self.lstm(U)
 
         return M
-        # U_phat[diagonal] = 0 # zero out all the values on the diagonal. torch.diagonal might help
-        # U_phat = U_p @ U_phat
-
-        # U = concat(U_p, U_phat) # (batch_size, 8*hidden_size, p_len)
-
-        # M = self.lstm(U)
-
-        # return M
-
 
 class AnswerModule(nn.Module):
     def __init__(self, hidden_size, drop_prob, T):
@@ -759,7 +722,7 @@ class BiDAFOutput(nn.Module):
 
 
 if __name__ == "__main__":
-    test = "AnswerModule"
+    test = "MemoryGeneration"
     batch_size, num_candidates, d, p_len, q_len, T, drop_prob = 5, 4, 3, 10, 15, 5, 0.4
     if test == "RankerLayer":
         """
@@ -824,7 +787,9 @@ if __name__ == "__main__":
         p_len = 30
         H_q = torch.randn(batch_size, q_len, 2 * 128)
         H_p = torch.randn(batch_size, p_len, 2 * 128)
-        print(memGen(H_p, H_q, p_mask=None, q_mask=None))
+        p_mask=torch.ones(batch_size, p_len, 1)
+        q_mask=torch.ones(batch_size, q_len, 1)
+        print(memGen(H_p, H_q, p_mask=p_mask, q_mask=q_mask))
     elif test == "ContextualEmbedding":
         context = ContextualEmbedding(input_size=d, hidden_size=d, drop_prob=drop_prob, num_layers=2)
         x = torch.randn(batch_size, p_len, d)
