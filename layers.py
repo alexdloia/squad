@@ -210,7 +210,7 @@ class MemoryGeneration(nn.Module):
         # U_phat = U_phat.fill_diagonal_(0)
         # print(U_phat.shape)
         # zero diagonal without inplace operations
-        U_phat = U_phat * (1 - torch.eye(p_len))
+        U_phat = U_phat * (1 - torch.eye(p_len).to(U_phat.device))
 
         U_phat = torch.matmul(self.dropout(U_phat), U_p)  #apply diag (batch_size, p_len, hidden_size)
 
