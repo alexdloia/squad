@@ -79,11 +79,13 @@ class SAN(nn.Module):
         H_q = self.context(E_q, q_len)  # (batch_size, q_len, 2 * hidden_size)
 
         print(f"H_p {H_p.size()}, H_q {H_q.size()}")
-        M = self.memory(H_p, H_q, p_mask, q_mask)  # (batch_size, p_len, 2 * hidden_size)
+        p_mask_3d = torch.unsqueeze(p_mask, dim=2)
+        q_mask_3d = torch.unsqueeze(q_mask, dim=2)
+        M = self.memory(H_p, H_q, p_mask_3d, q_mask_3d)  # (batch_size, p_len, 2 * hidden_size)
 
         print(f"M {M.size()}")
         # at least one step of the answer module MUST be active during training.
-        p1, p2 = self.answer(H_p, H_q, M, p_mask, q_mask)  # 2 tensors each of shape (batch_size, p_len)
+        p1, p2 = self.answer(H_p, H_q, M)  # 2 tensors each of shape (batch_size, p_len)
 
         return p1, p2
 

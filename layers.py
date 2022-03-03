@@ -146,11 +146,9 @@ class DotProductAttention(nn.Module):
         Qkey = self.relu(self.Qkey(H_qhat)) # shape (batch_size, q_len, hidden_size)
         # print(P.shape)
         # print(Qkey.shape)
-        # C = torch.nn.functional.softmax(torch.matmul(Qkey, torch.transpose(P, 1, 2)), dim=1) # shape (batch_size, q_len, p_len)
-        dp = torch.matmul(Qkey, torch.transpose(P,1,2))
-        print(dp.shape)
-        print(q_mask.shape)
-        C = masked_softmax(dp, mask=q_mask, dim=1)
+        pt = torch.transpose(P, 1, 2)
+        a = torch.matmul(Qkey, pt)
+        C = masked_softmax(a, dim=1, mask=q_mask) # shape (batch_size, q_len, p_len)
         return C
 
 
@@ -176,6 +174,8 @@ class MemoryGeneration(nn.Module):
         # construct working memory summary of information from P and Q
         H_qhat = self.ffn_q(H_q)  # (batch_size, q_len, hidden_size) I think
         H_phat = self.ffn_p(H_p)  # (batch_size, p_len, hidden_size) I think
+        print("mask", p_mask.size(), q_mask.size())
+        _, p_len, _ = H_p.size()
 
         # print(H_qhat.shape)
         # print(H_phat.shape)
@@ -187,7 +187,8 @@ class MemoryGeneration(nn.Module):
         # I think that this is just softmax(Q @ K^T / sqrt(d_k)) @ V for query, key, value
         # print("C shape", C.shape)
 
-        q = torch.matmul(torch.transpose(C, 1,2), H_q) # (batch_size, p_len, 2*hidden_size)
+        ct = torch.transpose(C, 1,2)
+        q = torch.matmul(ct, H_q) # (batch_size, p_len, 2*hidden_size)
         # print("Q shape", q.shape)
         # print(H_p.shape)
 
@@ -196,17 +197,18 @@ class MemoryGeneration(nn.Module):
         # print("U_p", U_p.shape)
         U_p1 = self.Up1(U_p)  # (batch_size, p_len, 4*hidden_size)
         U_p2 = self.Up2(U_p) # (batch_size, p_len, 4*hidden_size)
+        U_p2 = torch.transpose(U_p2, 1, 2)
 
         # print(U_p1.shape)
         # print(U_p2.shape)
-        dp =  U_p1 @ torch.transpose(U_p2, 1, 2) # (batch_size, p_len, p_len)
+        dp =  U_p1 @  U_p2 # (batch_size, p_len, p_len)
 
         # print(dp.shape)
-        U_phat = torch.nn.functional.softmax(dp, dim=1) # (batch_size, p_len, p_len)
+        U_phat = masked_softmax(dp, dim=1, mask=p_mask) # (batch_size, p_len, p_len)
         # U_phat = U_phat.fill_diagonal_(0)
         # print(U_phat.shape)
-        mask = torch.eye(U_phat.shape[1]).repeat(U_phat.shape[0], 1, 1).bool()
-        U_phat[mask] = 0
+        # zero diagonal without inplace operations
+        U_phat = U_phat * (1 - torch.eye(p_len))
 
         U_phat = torch.matmul(self.dropout(U_phat), U_p)  #apply diag (batch_size, p_len, hidden_size)
 
@@ -230,11 +232,10 @@ class AnswerModule(nn.Module):
         self.hidden_size = hidden_size
         self.drop_prob = drop_prob
         self.T = T
-        self.W_4 = nn.Parameter(torch.zeros(2 * hidden_size))
-        self.W_5 = nn.Parameter(
-            torch.zeros(2 * hidden_size, 2 * hidden_size))  # might be 2 * hidden_size output for some of these...
-        self.W_6 = nn.Parameter(torch.zeros(2 * hidden_size, 2 * hidden_size))
-        self.W_7 = nn.Parameter(torch.zeros(4 * hidden_size, 2 * hidden_size))
+        self.W_4 = nn.Linear(2 * hidden_size, 1, bias=False)
+        self.W_5 = nn.Linear(2 * hidden_size, 2 * hidden_size, bias=False)  # might be 2 * hidden_size output for some of these...
+        self.W_6 = nn.Linear(2 * hidden_size, 2 * hidden_size, bias=False)
+        self.W_7 = nn.Linear(2 * hidden_size, 4 * hidden_size, bias=False)
         # idk the input sizes to this GRU
         self.gru = nn.GRU(2 * hidden_size, 2 * hidden_size, num_layers=1,
                           batch_first=True,
@@ -247,17 +248,22 @@ class AnswerModule(nn.Module):
         _, p_len, _ = H_p.size()
 
         # might want to swap to be (batch_size, T, ...) for these arrays... idk
-        s = torch.zeros(self.T, batch_size, 2 * self.hidden_size)
-        p1 = torch.zeros(self.T, batch_size, p_len)
-        p2 = torch.zeros(self.T, batch_size, p_len)
+        s = [H_p.new_zeros(size=(batch_size, 2 * self.hidden_size)) for _ in range(self.T)]
 
+        print(H_p.size(), H_q.size(), M.size())
         # H_q (batch_size, q_len, 2 * hidden_size)
         # M (batch_size, p_len, 2 * hidden_size)
         # s[0] = sum(alpha[j] * H_q[:, :, j]) along axis 0 I think (don't sum between batches)
         # # sum parameters along the hidden size layer (our w_4 parameter)
-        alpha = torch.softmax(torch.einsum('bqh,h->bq', (H_q, self.W_4)), dim=1)  # exp(w_4 H_q_j) for each j, batch
+        print("w4", self.W_4(H_q).size())
+        alpha = self.W_4(H_q)
+        alpha = torch.squeeze(alpha, dim=2)
+        alpha = torch.softmax(alpha, dim=1)  # exp(w_4 H_q_j) for each j, batch
         # alpha has shape (batch_size, q_len)
-        s[0] = torch.einsum('bq,bqh->bh', (alpha, H_q))  # sum_j \alpha_j (H_q)_j for each batch
+        print(alpha.size(), H_q.size())
+        alpha = torch.unsqueeze(alpha, dim=1)
+        alpha = torch.bmm(alpha, H_q)
+        s[0] = torch.squeeze(alpha, dim=1)  # sum_j \alpha_j (H_q)_j for each batch
 
         # at time step t = 1, 2, ... T_1:
         # x_t = sum(beta[j] * M[j])
@@ -266,12 +272,23 @@ class AnswerModule(nn.Module):
         # s[t] = self.gru(s[t-1], x[t]
         for t in range(1, self.T):
             # beta[j] = softmax(s[t-1] @ self.W_5 @ M)
-            beta = torch.softmax(torch.einsum('bd,bdn->bn', (s[t], torch.matmul(self.W_5, M))),
-                                 dim=1)  # softmax across the non-batch dimension (batch_size, p_len)
+            print("st, w5", s[t-1].size(), self.W_5(M).size())
+            print(torch.unsqueeze(s[t-1], dim=2).size(), self.W_5(M).size())
+            s_tmp = torch.unsqueeze(s[t-1], dim=2)
+            beta = torch.bmm(self.W_5(M), s_tmp)
+            beta = torch.squeeze(beta, dim=2)
+            print(beta.size())
+            beta = torch.softmax(beta, dim=1)  # softmax across the non-batch dimension (batch_size, p_len)
 
-            x = torch.einsum('bn,bdn->bd',
-                             (beta, M))  # sum beta_j M_j for all j, all batch (batch_size, 2 * hidden_size)
-            s_tmp, _ = self.gru(torch.unsqueeze(s[t - 1], 1), torch.unsqueeze(x, 0))
+
+            print(beta.size(), M.size())
+            beta = torch.unsqueeze(beta, dim=1)
+            x = torch.bmm(beta, M)
+            print(x.size())
+            x = torch.squeeze(x, dim=1)  # sum beta_j M_j for all j, all batch (batch_size, 2 * hidden_size)
+            s_tmp = torch.unsqueeze(s[t - 1], dim=1)
+            x = torch.unsqueeze(x, 0)
+            s_tmp, _ = self.gru(s_tmp, x)
             s[t] = torch.squeeze(s_tmp, dim=1)
 
         # Finally, we get our probability distributions
@@ -284,23 +301,32 @@ class AnswerModule(nn.Module):
         else:
             chosen_t = torch.ones(p_len)
 
-        final_p1 = torch.zeros((batch_size, p_len))
-        final_p2 = torch.zeros((batch_size, p_len))
+        p1 = H_p.new_zeros(size=(batch_size, p_len))
+        p2 = H_p.new_zeros(size=(batch_size, p_len))
         for t in range(self.T):
             if not chosen_t[t]:
                 continue
 
-            p1[t] = torch.softmax(torch.einsum('bd,bdn->bn', (s[t], torch.matmul(self.W_6, M))), dim=1)
-            s2 = torch.einsum('bn,bdn->bd', (p1[t], M))
+            s_tmp = torch.unsqueeze(s[t], dim=2)
+            w6_tmp = torch.bmm(self.W_6(M), s_tmp)
+            w6_tmp = torch.squeeze(w6_tmp, dim=2)
+            p1_tmp = torch.softmax(w6_tmp, dim=1)
+            p1_tmp_3d = torch.unsqueeze(p1_tmp, dim=1)
+            s2 = torch.bmm(p1_tmp_3d, M)
+            s2 = torch.squeeze(s2, dim=1)
             s2 = torch.cat((s[t], s2), dim=1)  # (batch_size, 4 * hidden_size)
-            p2[t] = torch.softmax(torch.einsum('bd,bdn->bn', (s2, torch.matmul(self.W_7, M))), dim=1)
-            final_p1 += p1[t]
-            final_p2 += p2[t]
+            s2 = torch.unsqueeze(s2, dim=2)
 
-        final_p1 /= sum(chosen_t)  # normalize our probabilities by how many distributions we summed
-        final_p2 /= sum(chosen_t)
+            w7_tmp = torch.bmm(self.W_7(M), s2)
+            w7_tmp = torch.squeeze(w7_tmp, dim=2)
+            p2_tmp = torch.softmax(w7_tmp, dim=1)
+            p1 += p1_tmp
+            p2 += p2_tmp
 
-        return final_p1.log(), final_p2.log()  # return as log probabilities for their code scaffolding
+        p1 /= sum(chosen_t)  # normalize our probabilities by how many distributions we summed
+        p2 /= sum(chosen_t)
+
+        return p1.log(), p2.log()  # return as log probabilities for their code scaffolding
 
 
 class CustomEmbedding(nn.Module):
@@ -752,7 +778,7 @@ class BiDAFOutput(nn.Module):
 
 
 if __name__ == "__main__":
-    test = "MemoryGeneration"
+    test = "AnswerModule"
     batch_size, num_candidates, d, p_len, q_len, T, drop_prob = 5, 4, 3, 10, 15, 5, 0.4
     if test == "RankerLayer":
         """
@@ -807,7 +833,7 @@ if __name__ == "__main__":
         answer = AnswerModule(d, drop_prob, T)
         H_p = torch.randn(batch_size, p_len, 2 * d)
         H_q = torch.randn(batch_size, q_len, 2 * d)
-        M = torch.rand(batch_size, 2 * d, p_len)
+        M = torch.rand(batch_size, p_len, 2 * d)
 
         log_p1, log_p2 = answer(H_p, H_q, M)
         print(log_p1, log_p2)
