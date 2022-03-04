@@ -23,6 +23,8 @@ import time
 NUM_CANDIDATES = 20
 NUM_POS_TAGS = 50
 NUM_NER_TAGS = 19
+POS_UNK = 47
+NER_UNK = 18
 
 
 def get_lens_from_mask(mask):
@@ -185,6 +187,12 @@ class SQuAD(data.Dataset):
             ones = torch.ones((batch_size, 1), dtype=torch.int64)
             self.context_idxs = torch.cat((ones, self.context_idxs), dim=1)
             self.question_idxs = torch.cat((ones, self.question_idxs), dim=1)
+            pos_pad = torch.full((batch_size, 1), POS_UNK)
+            self.pos_idxs = torch.cat((pos_pad, self.pos_idxs), dim=1)
+            ner_pad = torch.full((batch_size, 1), NER_UNK)
+            self.ner_idxs = torch.cat((ner_pad, self.ner_idxs), dim=1)
+            zeros = torch.zeros((batch_size, 1, 3), dtype=torch.int64)
+            self.bem_idxs = torch.cat((zeros, self.bem_idxs), dim=1)
 
             ones = torch.ones((batch_size, 1, w_len), dtype=torch.int64)
             self.context_char_idxs = torch.cat((ones, self.context_char_idxs), dim=1)
@@ -269,6 +277,7 @@ def collate_fn(examples):
 
     # Merge into batch tensors
     context_idxs = merge_1d(context_idxs)
+    _, seq_len = context_idxs.size()
     context_char_idxs = merge_2d(context_char_idxs)
     question_idxs = merge_1d(question_idxs)
     question_char_idxs = merge_2d(question_char_idxs)
@@ -276,7 +285,7 @@ def collate_fn(examples):
     y2s = merge_0d(y2s)
     pos_idxs = merge_1d(pos_idxs, pad_value=NUM_POS_TAGS)
     ner_idxs = merge_1d(ner_idxs, pad_value=NUM_NER_TAGS)
-    bem_idxs = merge_2d_no_pad(bem_idxs)
+    bem_idxs = torch.stack(bem_idxs)[:, :seq_len, :]
     ids = merge_0d(ids)
 
     return (context_idxs, context_char_idxs,
