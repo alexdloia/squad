@@ -57,7 +57,7 @@ def main(args):
         cand_model = SAN(word_vectors=word_vectors,
                          hidden_size=args.cand_hidden_size,
                          drop_prob=args.drop_prob, T=args.cand_hidden_size).to(device)
-    elif args.model == 'san':
+    else:
         model = SAN(word_vectors=word_vectors,
                     hidden_size=args.cand_hidden_size,
                     drop_prob=args.drop_prob,
