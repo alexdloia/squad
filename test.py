@@ -103,7 +103,8 @@ def main(args):
 
             # Forward
             if args.model == "scr":
-                candidates, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), util.NUM_CANDIDATES,
+                candidates, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs,
+                                                         (y1, y2), util.NUM_CANDIDATES,
                                                          device, train=False)
 
                 logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates)

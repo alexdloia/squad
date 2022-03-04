@@ -49,7 +49,7 @@ def convert_probs(logprob_chunks, candidates, c_len, c_mask, device):
     return log_p1, log_p2
 
 
-def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device, train=True):
+def generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, ys, num_candidates, device, train=True):
     """Given a candidate model, generate the candidates list for input into the SCr model along with a chunk_y which
     represents the solution index.
 
@@ -66,7 +66,7 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device
     batch_size = cw_idxs.size()[0]
     candidates = torch.zeros(batch_size, num_candidates, 2, dtype=torch.long)
     chunk_y = torch.zeros(batch_size).to(device)
-    log_p1, log_p2 = cand_model(cw_idxs, qw_idxs)
+    log_p1, log_p2 = cand_model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
     p1, p2 = torch.exp(log_p1), torch.exp(log_p2)
     # loss calc only needed for gradient
     # y1, y2 = y1.to(device), y2.to(device)
