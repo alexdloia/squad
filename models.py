@@ -139,7 +139,7 @@ class SCR(nn.Module):
 
         self.rank = layers.RankerLayer()
 
-    def forward(self, cw_idxs, qw_idxs, candidates):
+    def forward(self, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates):
         # candidates is a (batch_size, num_candidates, 2) tensor
 
         c_mask = torch.zeros_like(cw_idxs) != cw_idxs  # (batch_size, c_len)
@@ -147,7 +147,7 @@ class SCR(nn.Module):
 
         c_len, q_len = c_mask.sum(-1), q_mask.sum(-1)
 
-        R_p, R_q = self.lex(cw_idxs, qw_idxs, c_mask, q_mask)  # (batch_size, p_len, 600), (batch_size, q_len, 300)
+        R_p, R_q = self.lex(cw_idxs, qw_idxs, c_mask, q_mask, pos_idxs, ner_idxs, bem_idxs)  # (batch_size, p_len, 600), (batch_size, q_len, 300)
 
         c_emb = self.ffn_p(
             R_p)  # (batch_size, p_len, 600) -> (batch_size, p_len, hidden_size) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
