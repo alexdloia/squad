@@ -162,9 +162,9 @@ class MemoryGeneration(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, H_p, H_q, p_mask, q_mask):
+        _, p_len, _ = H_p.size()
         H_qhat = self.ffn_q(H_q)  # (batch_size, q_len, hidden_size) 
         H_phat = self.ffn_p(H_p)  # (batch_size, p_len, hidden_size)
-        # _, p_len, _ = H_p.size()
 
         C = self.dropout(self.f_attn(H_qhat, H_phat, q_mask))  # (batch_size, q_len, p_len)
         # attention from https://arxiv.org/pdf/1706.03762.pdf
