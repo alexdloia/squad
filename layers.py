@@ -10,6 +10,7 @@ from turtle import backward
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
@@ -101,6 +102,65 @@ class ContextualEmbedding(nn.Module):
         # see BiDAF / SCR for an example
 
         return self.enc(x, lengths)
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, hidden_size, drop_prob, n_heads, selfAttention=False):
+        super(MultiHeadAttention, self).__init__()
+        assert hidden_size % n_heads == 0
+        n = 2
+        if selfAttention:
+            n = 4
+        self.n_head = n_heads
+        self.P = nn.Linear(n*hidden_size, n*hidden_size)
+        self.Qkey = nn.Linear(n*hidden_size, n*hidden_size)
+        self.Qvalue = nn.Linear(n*hidden_size, n*hidden_size)
+
+        # regularization
+        self.attn_drop = nn.Dropout(drop_prob)
+        self.resid_drop = nn.Dropout(drop_prob / 2) # resid_drop generally lower???
+        # projection
+        self.proj = nn.Linear(n*hidden_size, n*hidden_size)
+
+    def forward(self, H_p, H_q, mask):
+        B, p_len, n_embed = H_p.size()
+        B2, q_len, n_embed2 = H_q.size()
+        assert B == B2
+        assert n_embed == n_embed2
+
+        # print(H_p.shape)
+        P = self.P(H_p).view(B, p_len, self.n_head, n_embed // self.n_head).transpose(1, 2) # (B, nh, p_len, 2*hidden_size / n_head)
+        key = self.Qkey(H_q).view(B, q_len, self.n_head, n_embed // self.n_head).transpose(1, 2) # (B, nh, q_len, 2*hidden_size / n_head)
+        val = self.Qvalue(H_q).view(B, q_len, self.n_head, n_embed //self.n_head).transpose(1,2) # (B, nh, q_len, 2*hidden_size / n_head)
+
+        att = (key @ P.transpose(-2, -1)) * (1.0 / math.sqrt(key.size(-1))) # (B, nh, q_len, p_len)
+        # print(att.shape)
+        # print(mask.shape)
+        C = masked_softmax(att, dim=-2, mask=mask)
+        C = self.attn_drop(C)
+        # print(C.shape)
+        # print(val.shape)
+        y = C.transpose(-2, -1) @ val # (B, nh, p_len, q_len) * (B, nh, q_len, hidden_size)
+        y = y.transpose(1, 2).contiguous().view(B, p_len, n_embed) # (B, nh, p_len, 2*hidden_size)
+        
+        y = self.resid_drop(self.proj(y))
+        return y
+
+class MultiHeadMemoryGeneration(nn.Module):
+    def __init__(self, hidden_size, drop_prob, n_heads, num_layers):
+        super(MultiHeadMemoryGeneration, self).__init__()
+        self.hidden_size = hidden_size
+        self.drop_prob = drop_prob
+        self.f_attn = MultiHeadAttention(hidden_size, drop_prob, n_heads)
+        self.f_selfattn = MultiHeadAttention(hidden_size, drop_prob, n_heads, selfAttention=True)
+        self.lstm = nn.LSTM(8 * hidden_size, hidden_size, num_layers, batch_first=True, bidirectional=True)
+    def forward(self, H_p, H_q, p_mask, q_mask):
+        att = self.f_attn(H_p, H_q, q_mask) # (batch_size, p_len, 2*hidden_size)
+        U_p = torch.cat((H_p, att), dim=-1)  # (batch_size, p_len, 4*hidden_size)
+        print(U_p.shape)
+        U_phat = self.f_selfattn(U_p, U_p, p_mask) # (batch_size, p_len, 4*hidden_size)
+        U = torch.cat((U_p, U_phat), dim=-1)  # (batch_size, p_len, 8*hidden_size)
+        M, _ = self.lstm(U)
+        return M
 
 
 class SANFeedForward(nn.Module):
@@ -722,7 +782,7 @@ class BiDAFOutput(nn.Module):
 
 
 if __name__ == "__main__":
-    test = "MemoryGeneration"
+    test = "MultiHeadMemoryGeneration"
     batch_size, num_candidates, d, p_len, q_len, T, drop_prob = 5, 4, 3, 10, 15, 5, 0.4
     if test == "RankerLayer":
         """
@@ -795,3 +855,12 @@ if __name__ == "__main__":
         x = torch.randn(batch_size, p_len, d)
         lengths = torch.randint(1, p_len + 1, (batch_size,))
         print(context(x, lengths))
+    elif test == "MultiHeadMemoryGeneration":
+        memGen = MultiHeadMemoryGeneration(hidden_size=128, drop_prob=.4, n_heads=8, num_layers=1)
+        q_len = 10
+        p_len = 30
+        H_q = torch.randn(batch_size, q_len, 2 * 128)
+        H_p = torch.randn(batch_size, p_len, 2 * 128)
+        p_mask=torch.ones(batch_size, 8, p_len, 1)
+        q_mask=torch.ones(batch_size, 8, q_len, 1)
+        print(memGen(H_p=H_p, H_q=H_q, p_mask=p_mask, q_mask=q_mask))
