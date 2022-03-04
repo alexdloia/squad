@@ -283,8 +283,8 @@ def collate_fn(examples):
     question_char_idxs = merge_2d(question_char_idxs)
     y1s = merge_0d(y1s)
     y2s = merge_0d(y2s)
-    pos_idxs = merge_1d(pos_idxs, pad_value=NUM_POS_TAGS)
-    ner_idxs = merge_1d(ner_idxs, pad_value=NUM_NER_TAGS)
+    pos_idxs = torch.stack(pos_idxs)[:, :seq_len]
+    ner_idxs = torch.stack(ner_idxs)[:, :seq_len]
     bem_idxs = torch.stack(bem_idxs)[:, :seq_len, :]
     ids = merge_0d(ids)
 
