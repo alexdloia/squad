@@ -4,7 +4,6 @@ Author:
     Chris Chute (chute@stanford.edu)
 """
 
-import chunk
 import numpy as np
 import random
 import torch
@@ -18,13 +17,11 @@ import util
 from args import get_train_args
 from collections import OrderedDict
 from json import dumps
-from models import BiDAF, SCR, SAN
+from models import SCR, SAN
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from ujson import load as json_load
 from util import collate_fn, SQuAD, NUM_CANDIDATES
-
-import time
 
 def main(args):
     # Set up logging and devices
@@ -53,16 +50,16 @@ def main(args):
     if args.model == "scr":
         model = SCR(word_vectors=word_vectors,
                     hidden_size=args.hidden_size,
-                    num_candidates=util.NUM_CANDIDATES,
+                    num_candidates=NUM_CANDIDATES,
                     drop_prob=args.drop_prob).to(device)
-        cand_model = BiDAF(word_vectors=word_vectors,
-                    hidden_size=args.hidden_size,
-                    drop_prob=args.drop_prob).to(device)
+        cand_model = SAN(word_vectors=word_vectors,
+                         hidden_size=args.cand_hidden_size,
+                         drop_prob=args.drop_prob, T=args.cand_hidden_size).to(device)
     elif args.model == 'san':
         model = SAN(word_vectors=word_vectors,
-                    hidden_size=128,
+                    hidden_size=args.cand_hidden_size,
                     drop_prob=args.drop_prob,
-                    T=5).to(device)
+                    T=args.cand_hidden_size).to(device)
     model = nn.DataParallel(model, args.gpu_ids)
     if args.load_model_path:
         log.info(f'Loading checkpoint from {args.load_model_path}...')
@@ -128,7 +125,8 @@ def main(args):
                 optimizer.zero_grad()
 
                 if args.model == "scr":
-                    candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), NUM_CANDIDATES, device, train=True)
+                    candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2),
+                                                                   NUM_CANDIDATES, device, train=True)
                     chunk_y.to(device)
 
                     logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates)
@@ -169,18 +167,18 @@ def main(args):
                     ema.assign(model)
                     if args.model == 'scr':
                         results, pred_dict = evaluate(model, dev_loader, device,
-                                                    args.dev_eval_file,
-                                                    args.max_ans_len,
-                                                    args.use_squad_v2,
-                                                    cand_model,
-                                                    args.model == "scr")
+                                                      args.dev_eval_file,
+                                                      args.max_ans_len,
+                                                      args.use_squad_v2,
+                                                      cand_model,
+                                                      args.model == "scr")
                     else:
                         results, pred_dict = evaluate(model, dev_loader, device,
-                                                  args.dev_eval_file,
-                                                  args.max_ans_len,
-                                                  args.use_squad_v2,
-                                                  None,
-                                                  args.model == "scr")
+                                                      args.dev_eval_file,
+                                                      args.max_ans_len,
+                                                      args.use_squad_v2,
+                                                      None,
+                                                      args.model == "scr")
                     saver.save(step, model, results[args.metric_name], device)
                     ema.resume(model)
 
@@ -220,7 +218,8 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_
 
             # Forward
             if chunk:
-                candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), NUM_CANDIDATES, device, train=True)
+                candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), NUM_CANDIDATES,
+                                                               device, train=True)
                 logprob_chunks = model(cw_idxs, qw_idxs, candidates)
                 chunk_y.to(device)
 

@@ -243,6 +243,14 @@ def add_train_test_args(parser):
                         type=int,
                         default=100,
                         help='Number of features in encoder hidden layers.')
+    parser.add_argument('--cand_hidden_size',
+                        type=int,
+                        default=128,
+                        help='Number of features in candidate model encoder hidden layers.')
+    parser.add_argument('--cand_time_steps',
+                        type=int,
+                        default=5,
+                        help='Number of time steps for SAN.')
     parser.add_argument('--num_visuals',
                         type=int,
                         default=10,

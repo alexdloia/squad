@@ -22,7 +22,7 @@ import util
 from args import get_test_args
 from collections import OrderedDict
 from json import dumps
-from models import BiDAF, SCR
+from models import BiDAF, SCR, SAN
 from os.path import join
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
@@ -48,11 +48,13 @@ def main(args):
         model = SCR(word_vectors=word_vectors,
                     hidden_size=args.hidden_size,
                     num_candidates=util.NUM_CANDIDATES).to(device)
-        cand_model = BiDAF(word_vectors=word_vectors,
-                           hidden_size=args.hidden_size).to(device)
+        cand_model = SAN(word_vectors=word_vectors,
+                         hidden_size=args.cand_hidden_size,
+                         T=args.cand_time_steps).to(device)
     else:
-        model = BiDAF(word_vectors=word_vectors,
-                      hidden_size=args.hidden_size).to(device)
+        model = SAN(word_vectors=word_vectors,
+                    hidden_size=args.cand_hidden_size,
+                    T=args.cand_time_steps).to(device)
     model = nn.DataParallel(model, gpu_ids)
     if args.load_model_path:
         log.info(f'Loading checkpoint from {args.load_model_path}...')
@@ -72,7 +74,8 @@ def main(args):
     # Get data loader
     log.info('Building dataset...')
     record_file = vars(args)[f'{args.split}_record_file']
-    dataset = SQuAD(record_file, args.use_squad_v2)
+    data_aug_file = vars(args)[f'{args.split}_data_aug_file']
+    dataset = SQuAD(record_file, data_aug_file, args.use_squad_v2)
     data_loader = data.DataLoader(dataset,
                                   batch_size=args.batch_size,
                                   shuffle=False,
@@ -89,23 +92,27 @@ def main(args):
         gold_dict = json_load(fh)
     with torch.no_grad(), \
             tqdm(total=len(dataset)) as progress_bar:
-        for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in data_loader:
+        for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, pos_idxs, ner_idxs, bem_idxs, ids in data_loader:
             # Setup for forward
             cw_idxs = cw_idxs.to(device)
             qw_idxs = qw_idxs.to(device)
+            pos_idxs = pos_idxs.to(device)
+            ner_idxs = ner_idxs.to(device)
+            bem_idxs = bem_idxs.to(device)
             batch_size = cw_idxs.size(0)
 
             # Forward
             if args.model == "scr":
-                candidates, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), util.NUM_CANDIDATES, device, train=False)
+                candidates, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), util.NUM_CANDIDATES,
+                                                         device, train=False)
 
-                logprob_chunks = model(cw_idxs, qw_idxs, candidates)
+                logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates)
                 c_len = cw_idxs.size()[1]
                 c_mask = torch.zeros_like(cw_idxs) != cw_idxs
 
                 log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, c_mask, device)
             else:
-                log_p1, log_p2 = model(cw_idxs, qw_idxs)
+                log_p1, log_p2 = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
             y1, y2 = y1.to(device), y2.to(device)
             loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
             nll_meter.update(loss.item(), batch_size)
