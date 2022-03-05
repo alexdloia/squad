@@ -133,10 +133,6 @@ class MultiHeadAttention(nn.Module):
         val = self.Qvalue(H_q).view(B, q_len, self.n_head, n_embed //self.n_head).transpose(1,2) # (B, nh, q_len, 2*hidden_size / n_head)
 
         att = (key @ P.transpose(-2, -1)) * (1.0 / math.sqrt(key.size(-1))) # (B, nh, q_len, p_len)
-        # print(att.shape)
-        # print(mask.shape)
-        print(att.shape)
-        print(mask.shape)
         C = masked_softmax(att, dim=-2, mask=mask)
         C = self.attn_drop(C)
         # print(C.shape)
@@ -158,7 +154,7 @@ class MultiHeadMemoryGeneration(nn.Module):
     def forward(self, H_p, H_q, p_mask, q_mask):
         att = self.f_attn(H_p, H_q, q_mask) # (batch_size, p_len, 2*hidden_size)
         U_p = torch.cat((H_p, att), dim=-1)  # (batch_size, p_len, 4*hidden_size)
-        print(U_p.shape)
+        # print(U_p.shape)
         U_phat = self.f_selfattn(U_p, U_p, p_mask) # (batch_size, p_len, 4*hidden_size)
         U = torch.cat((U_p, U_phat), dim=-1)  # (batch_size, p_len, 8*hidden_size)
         M, _ = self.lstm(U)
