@@ -135,13 +135,15 @@ class MultiHeadAttention(nn.Module):
         att = (key @ P.transpose(-2, -1)) * (1.0 / math.sqrt(key.size(-1))) # (B, nh, q_len, p_len)
         # print(att.shape)
         # print(mask.shape)
+        print(att.shape)
+        print(mask.shape)
         C = masked_softmax(att, dim=-2, mask=mask)
         C = self.attn_drop(C)
         # print(C.shape)
         # print(val.shape)
         y = C.transpose(-2, -1) @ val # (B, nh, p_len, q_len) * (B, nh, q_len, hidden_size)
         y = y.transpose(1, 2).contiguous().view(B, p_len, n_embed) # (B, nh, p_len, 2*hidden_size)
-        
+
         y = self.resid_drop(self.proj(y))
         return y
 

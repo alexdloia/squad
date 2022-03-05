@@ -267,3 +267,7 @@ def add_train_test_args(parser):
                         type=str,
                         default="baseline",
                         help='Name of model to train. baseline or src')
+    parser.add_argument('--attn',
+                        type=str,
+                        default="DotProduct",
+                        help='Attention to use for SAN')
