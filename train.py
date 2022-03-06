@@ -134,7 +134,7 @@ def main(args):
                     chunk_y.to(device)
 
                     logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates)
-                    loss = F.nll_loss(torch.mul(logprob_chunks, candidate_scores, chunk_y)
+                    loss = F.nll_loss(torch.mul(logprob_chunks, candidate_scores), chunk_y)
                     loss_val = loss.item()
 
                 else:
