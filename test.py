@@ -96,6 +96,7 @@ def main(args):
             batch_size = cw_idxs.size(0)
 
             # Forward
+            y1, y2 = y1.to(device), y2.to(device)
             if args.model == "scr":
                 candidates, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), util.NUM_CANDIDATES, device, train=False)
 
@@ -104,9 +105,17 @@ def main(args):
                 c_mask = torch.zeros_like(cw_idxs) != cw_idxs
 
                 log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, c_mask, device)
+            elif args.K_oracle != 0:
+                candidates = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), args.K_oracle, device, train=False)
+                for i in range(batch_size):
+                    answer_chunk = torch.Tensor([y1[i], y2[i]])
+                    found_y = torch.logical_and(candidates[i, :, 0] == answer_chunk[0],
+                                            candidates[i, :, 1] == answer_chunk[1]).nonzero()
+                    if len(found_y) > 0:
+                        # the correct answer is simply the index where we found the answer
+                        chunk_y[i] = found_y[0]
             else:
                 log_p1, log_p2 = model(cw_idxs, qw_idxs)
-            y1, y2 = y1.to(device), y2.to(device)
             loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
             nll_meter.update(loss.item(), batch_size)
 
