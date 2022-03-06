@@ -65,6 +65,7 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_id
     y1, y2 = ys
     batch_size = cw_idxs.size()[0]
     candidates = torch.zeros(batch_size, num_candidates, 2, dtype=torch.long)
+    candidate_scores = torch.zeros(batch_size, num_candidates)
     chunk_y = torch.zeros(batch_size).to(device)
     log_p1, log_p2 = cand_model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
     p1, p2 = torch.exp(log_p1), torch.exp(log_p2)
@@ -73,8 +74,9 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_id
     # cand_loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
     # cand_loss_val = cand_loss.item()
     for i in range(batch_size):
-        candidates[i] = get_candidates_full(p1[i], p2[i], num_candidates)
-
+        top_candidates, top_candidate_scores = get_candidates_full(p1[i], p2[i], num_candidates)
+        candidates[i] = top_candidates
+        candidate_scores[i:] = top_candidate_scores
         if train:  # only supply correct answer during train time
             answer_chunk = torch.Tensor([y1[i], y2[i]])
             chunky = torch.logical_and(candidates[i, :, 0] == answer_chunk[0],
@@ -89,7 +91,7 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_id
 
     chunk_y = chunk_y.long()
 
-    return candidates, chunk_y
+    return candidates, candidate_scores, chunk_y
 
 
 def get_candidates_full(p1, p2, num_candidates):
@@ -110,7 +112,8 @@ def get_candidates_full(p1, p2, num_candidates):
                                   dtype=torch.long)
     scores = p1[proposed[:, 0]] * p2[proposed[:, 1]]
 
-    return proposed[torch.argsort(scores, descending=True)[:num_candidates]]
+
+    return proposed[torch.argsort(scores, descending=True)[:num_candidates]], torch.sort(scores, descending=True)[:num_candidates] 
 
 
 def get_candidates_simple(p1, p2, num_candidates):
