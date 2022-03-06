@@ -115,7 +115,7 @@ def main(args):
 
                 log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, c_mask, device)
             elif args.K_oracle != 0:
-                candidates, _ = util.generate_candidates(model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, (y1, y2), args.K_oracle, device, train=False)
+                candidates, _, _ = util.generate_candidates(model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, (y1, y2), args.K_oracle, device, train=False)
                 some_log_p1, some_log_p2 = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
                 log_p1, log_p2 = torch.zeros(batch_size, p_len), torch.zeros(batch_size, p_len)
                 log_p1 = log_p1.to(device)
