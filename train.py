@@ -128,14 +128,13 @@ def main(args):
                 optimizer.zero_grad()
 
                 if args.model == "scr":
-                    candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs,
+                    candidates, candidate_scores, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs,
                                                                    bem_idxs, (y1, y2),
                                                                    NUM_CANDIDATES, device, train=True)
                     chunk_y.to(device)
 
                     logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates)
-
-                    loss = F.nll_loss(logprob_chunks, chunk_y)
+                    loss = F.nll_loss(torch.mul(logprob_chunks, candidate_scores, chunk_y)
                     loss_val = loss.item()
 
                 else:

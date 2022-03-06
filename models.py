@@ -176,7 +176,7 @@ class SCR(nn.Module):
         chunk_repr = self.repr(gammas, candidates, hc, hq, c_mask,
                                q_mask)  # (batch_size, num_candidates, 2 * hidden_size)
 
-        out = self.rank(chunk_repr, candidates, hq, q_mask, c_mask)  # 2 tensors, each (batch_size, c_len)
+        out = self.rank(chunk_repr, candidates, hq, q_mask, c_mask)  # 2 tensors, each (batch_size, num_candidates)
 
         return out
 
