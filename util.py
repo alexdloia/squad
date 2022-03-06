@@ -76,7 +76,7 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_id
     for i in range(batch_size):
         top_candidates, top_candidate_scores = get_candidates_full(p1[i], p2[i], num_candidates)
         candidates[i] = top_candidates
-        candidate_scores[i:] = top_candidate_scores
+        candidate_scores[i] = top_candidate_scores
         if train:  # only supply correct answer during train time
             answer_chunk = torch.Tensor([y1[i], y2[i]])
             chunky = torch.logical_and(candidates[i, :, 0] == answer_chunk[0],
