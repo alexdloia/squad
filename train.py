@@ -132,9 +132,14 @@ def main(args):
                                                                    bem_idxs, (y1, y2),
                                                                    NUM_CANDIDATES, device, train=True)
                     chunk_y.to(device)
-
+                    candidate_scores.to(device)
                     logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates)
-                    loss = F.nll_loss(torch.mul(logprob_chunks, candidate_scores), chunk_y)
+                    
+                    logprob_chunks.to(device)
+                    weighted_logprobs = torch.mul(logprob_chunks, candidate_scores)
+
+                    weighted_logprobs.to(device)
+                    loss = F.nll_loss(weighted_logprobs, chunk_y)
                     loss_val = loss.item()
 
                 else:
@@ -221,17 +226,19 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_
 
             # Forward
             if chunk:
-                candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs,
+                candidates, candidate_scores, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs,
                                                                bem_idxs, (y1, y2), NUM_CANDIDATES,
                                                                device, train=True)
                 logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates)
+                candidate_scores.to(device)
                 chunk_y.to(device)
-
-                loss = F.nll_loss(logprob_chunks, chunk_y)
+                weighted_logprobs = torch.mul(logprob_chunks, candidate_scores)
+                
+                loss = F.nll_loss(weighted_logprobs, chunk_y)
                 nll_meter.update(loss.item(), batch_size)
 
                 # Get F1 and EM scores
-                prob_chunks = logprob_chunks.exp()
+                prob_chunks = weighted_logprobs.exp()
                 starts, ends = util.chunk_discretize(prob_chunks, candidates)
             else:
                 log_p1, log_p2 = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
