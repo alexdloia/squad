@@ -123,6 +123,7 @@ def convert_probs(logprob_chunks, candidates, c_len, c_mask, device):
     return log_p1, log_p2
 
 
+
 def generate_candidates(cand_model, cw_idxs, qw_idxs, ys, num_candidates, device, train=True):
     """Given a candidate model, generate the candidates list for input into the SCr model along with a chunk_y which
     represents the solution index.

@@ -93,7 +93,9 @@ def main(args):
             # Setup for forward
             cw_idxs = cw_idxs.to(device)
             qw_idxs = qw_idxs.to(device)
+
             batch_size = cw_idxs.size(0)
+            _, p_len = cw_idxs.size()
 
             # Forward
             y1, y2 = y1.to(device), y2.to(device)
@@ -107,13 +109,22 @@ def main(args):
                 log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, c_mask, device)
             elif args.K_oracle != 0:
                 candidates = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), args.K_oracle, device, train=False)
+                some_log_p1, some_log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, c_mask, device)
+                log_p1, log_p2 = torch.zeros(batch_size, p_len), torch.zeros(batch_size, p_len)
+                log_p1 = log_p1.to(device)
+                log_p2 = log_p2.to(device)
                 for i in range(batch_size):
                     answer_chunk = torch.Tensor([y1[i], y2[i]])
                     found_y = torch.logical_and(candidates[i, :, 0] == answer_chunk[0],
                                             candidates[i, :, 1] == answer_chunk[1]).nonzero()
                     if len(found_y) > 0:
-                        # the correct answer is simply the index where we found the answer
-                        chunk_y[i] = found_y[0]
+                        # in K-oracle, we are completely correct if one of our candidates is correct
+                        log_p1[i][found_y[0]] = 1
+                        log_p1[i] = torch.log_softmax(log_p1[i], dim=0)
+                        log_p2[i][found_y[1]] = 1
+                        log_p2[i] = torch.log_softmax(log_p2[i], dim=0)
+                    else:
+                        log_p1[i], log_p2[i] = some_log_p1[i], some_log_p2[i] # otherwise we are just our normal function
             else:
                 log_p1, log_p2 = model(cw_idxs, qw_idxs)
             loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
