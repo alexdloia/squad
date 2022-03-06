@@ -126,9 +126,9 @@ def main(args):
                                             candidates[i, :, 1] == answer_chunk[1]).nonzero()
                     if len(found_y) > 0:
                         # in K-oracle, we are completely correct if one of our candidates is correct
-                        log_p1[i][found_y[0]] = 1
+                        log_p1[i, candidates[i, found_y, 0]] = 1
                         log_p1[i] = torch.log_softmax(log_p1[i], dim=0)
-                        log_p2[i][found_y[1]] = 1
+                        log_p2[i, candidates[i, found_y, 1]] = 1
                         log_p2[i] = torch.log_softmax(log_p2[i], dim=0)
                     else:
                         log_p1[i], log_p2[i] = some_log_p1[i], some_log_p2[i] # otherwise we are just our normal function
