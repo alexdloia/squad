@@ -156,13 +156,13 @@ class MemoryGeneration(nn.Module):
         self.dropout = nn.Dropout(drop_prob)
         self.f_attn = DotProductAttention(hidden_size, drop_prob)
         self.lstm = nn.LSTM(8 * hidden_size, hidden_size, num_layers, batch_first=True, bidirectional=True,
-                            dropout=drop_prob if num_layers > 1 else 0.)
+                            dropout=drop_prob)
         self.Up1 = nn.Linear(in_features=4 * hidden_size, out_features=4 * hidden_size, bias=True)
         self.Up2 = nn.Linear(in_features=4 * hidden_size, out_features=4 * hidden_size, bias=True)
         self.relu = nn.ReLU()
 
     def forward(self, H_p, H_q, p_mask, q_mask):
-        H_qhat = self.ffn_q(H_q)  # (batch_size, q_len, hidden_size) 
+        H_qhat = self.ffn_q(H_q)  # (batch_size, q_len, hidden_size)
         H_phat = self.ffn_p(H_p)  # (batch_size, p_len, hidden_size)
         # _, p_len, _ = H_p.size()
 
@@ -203,7 +203,7 @@ class AnswerModule(nn.Module):
         self.gru = nn.GRU(2 * hidden_size, 2 * hidden_size, num_layers=1,
                           batch_first=True,
                           bidirectional=False,
-                          dropout=0.)
+                          dropout=drop_prob)
 
     def forward(self, H_p, H_q, M):
         # answer module computes over T memory steps and outputs answer span
@@ -316,7 +316,7 @@ class RNN_GRUEncoder(nn.Module):
         self.rnn = nn.GRU(input_size, hidden_size, num_layers,
                           batch_first=True,
                           bidirectional=True,
-                          dropout=drop_prob if num_layers > 1 else 0.)
+                          dropout=drop_prob)
 
     def forward(self, x, lengths):
         """
@@ -364,7 +364,7 @@ class DCRAttention(nn.Module):
         self.rnn = nn.GRU(4 * hidden_size, hidden_size, num_layers,
                           batch_first=True,
                           bidirectional=True,
-                          dropout=drop_prob if num_layers > 1 else 0.)
+                          dropout=drop_prob)
 
     def forward(self, hp, hq, c_mask, q_mask):
         """
@@ -587,7 +587,7 @@ class RNNEncoder(nn.Module):
         self.rnn = nn.LSTM(input_size, hidden_size, num_layers,
                            batch_first=True,
                            bidirectional=True,
-                           dropout=drop_prob if num_layers > 1 else 0.)
+                           dropout=drop_prob)
 
     def forward(self, x, lengths):
         # Save original padded length for use by pad_packed_sequence
