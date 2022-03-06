@@ -65,7 +65,7 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_id
     y1, y2 = ys
     batch_size = cw_idxs.size()[0]
     candidates = torch.zeros(batch_size, num_candidates, 2, dtype=torch.long)
-    candidate_scores = torch.zeros(batch_size, num_candidates)
+    candidate_scores = torch.zeros(batch_size, num_candidates).to(device)
     chunk_y = torch.zeros(batch_size).to(device)
     log_p1, log_p2 = cand_model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
     p1, p2 = torch.exp(log_p1), torch.exp(log_p2)
@@ -111,9 +111,8 @@ def get_candidates_full(p1, p2, num_candidates):
     proposed[:, 1] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p2, num_proposed, replacement=True)),
                                   dtype=torch.long)
     scores = p1[proposed[:, 0]] * p2[proposed[:, 1]]
-
-
-    return proposed[torch.argsort(scores, descending=True)[:num_candidates]], torch.sort(scores, descending=True)[:num_candidates] 
+    sorted_scores, _ = torch.sort(scores,descending=True)
+    return proposed[torch.argsort(scores, descending=True)[:num_candidates]], sorted_scores[:num_candidates] 
 
 
 def get_candidates_simple(p1, p2, num_candidates):
