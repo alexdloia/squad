@@ -70,21 +70,29 @@ def download(args):
     print('Downloading spacy language model...')
     run(['python', '-m', 'spacy', 'download', 'en'])
 
+
 def word_tokenize(sent):
     doc = nlp(sent)
     return [(token.text, token.tag_, token.ent_type_, token.lemma_) for token in doc]
+
+
+def batch_word_tokenize(sents, contexts=True):
+    print(f"Tokenizing {'contexts' if contexts else 'questions'}...")
+    return [[(token.text, token.tag_, token.ent_type_, token.lemma_) for token in doc] for doc in
+            tqdm(nlp.pipe(sents), total=len(sents))]
 
 
 def convert_idx(text, tokens):
     current = 0
     spans = []
     for token in tokens:
-        current = text.find(token, current)
+        token_text = token[0]
+        current = text.find(token_text, current)
         if current < 0:
-            print(f"Token {token} cannot be found")
+            print(f"Token {token_text} cannot be found")
             raise Exception()
-        spans.append((current, current + len(token)))
-        current += len(token)
+        spans.append((current, current + len(token_text)))
+        current += len(token_text)
     return spans
 
 
@@ -98,17 +106,52 @@ def process_file(filename, data_type):
             for para in article["paragraphs"]:
                 context = para["context"].replace(
                     "''", '" ').replace("``", '" ')
-                context_tokens = word_tokenize(context)
                 for qa in para["qas"]:
                     total += 1
                     ques = qa["question"].replace(
                         "''", '" ').replace("``", '" ')
-                    ques_tokens = word_tokenize(ques)
-                    example = {"context_tokens": context_tokens,
-                               "ques_tokens": ques_tokens,
+                    answer_ends = []
+                    answer_starts = []
+                    for answer in qa["answers"]:
+                        answer_text = answer["text"]
+                        answer_start = answer['answer_start']
+                        answer_end = answer_start + len(answer_text)
+                        answer_starts.append(answer_start)
+                        answer_ends.append(answer_end)
+                    example = {"context": context,
+                               "ques": ques,
+                               "answer_ends": answer_ends,
+                               "answer_starts": answer_starts,
                                "id": total}
                     examples.append(example)
         print(f"{len(examples)} questions in total")
+    contexts = [example["context"] for example in examples]
+    contexts_tokens = batch_word_tokenize(contexts)
+    questions = [example["ques"] for example in examples]
+    questions_tokens = batch_word_tokenize(questions, contexts=False)
+    print("Getting y1s and y2s...")
+    for i, example in enumerate(examples):
+        context_tokens = contexts_tokens[i]
+        example["context_tokens"] = context_tokens
+        example["ques_tokens"] = questions_tokens[i]
+        context = example["context"]
+        spans = convert_idx(context, context_tokens)
+        y1s = []
+        y2s = []
+        for answer_start, answer_end in zip(example["answer_starts"], example["answer_ends"]):
+            answer_span = []
+            for idx, span in enumerate(spans):
+                if not (answer_end <= span[0] or answer_start >= span[1]):
+                    answer_span.append(idx)
+            y1, y2 = answer_span[0], answer_span[-1]
+            y1s.append(y1)
+            y2s.append(y2)
+        example["y1s"] = y1s
+        example["y2s"] = y2s
+        del example["answer_starts"]
+        del example["answer_ends"]
+        del example["context"]
+        del example["ques"]
     return examples
 
 
@@ -125,7 +168,8 @@ def get_embedding(counter, data_type, limit=-1, emb_file=None, vec_size=None, nu
                 vector = list(map(float, array[-vec_size:]))
                 if word in counter and counter[word] > limit:
                     embedding_dict[word] = vector
-        print(f"{len(embedding_dict)} / {len(filtered_elements)} tokens have corresponding {data_type} embedding vector")
+        print(
+            f"{len(embedding_dict)} / {len(filtered_elements)} tokens have corresponding {data_type} embedding vector")
     else:
         assert vec_size is not None
         for token in filtered_elements:
@@ -214,7 +258,6 @@ def build_data_aug_features(args, examples, data_type, out_file, tag2idx_dict, e
     ans_limit = args.ans_limit
 
     def drop_example(ex, is_test_=False):
-        is_test_ = True
         if is_test_:
             drop = False
         else:
@@ -245,22 +288,27 @@ def build_data_aug_features(args, examples, data_type, out_file, tag2idx_dict, e
         context_len = len(context_tokens)
         ques_tokens = example["ques_tokens"]
 
-        pos_idx = np.full([para_limit], tag2idx_dict['XX'], dtype=np.int32)
-        ner_idx = np.full([para_limit], ent2idx_dict[''], dtype=np.int32)
+        pos_idx = np.full([para_limit], len(tag2idx_dict) - 1, dtype=np.int32)
+        ner_idx = np.full([para_limit], len(ent2idx_dict), dtype=np.int32)
         bem_idx = np.zeros([para_limit, 3], dtype=np.int32)
 
         # POS
-        pos_idx[:context_len] = np.asarray([tag2idx_dict[tok[1]] for tok in context_tokens])
+        pos_idx[:context_len] = np.fromiter(
+            (tag2idx_dict[tok[1]] for tok in context_tokens),
+            dtype=np.int32)
         pos_idxs.append(pos_idx)
 
         # NER
-        ner_idx[:context_len] = np.asarray([ent2idx_dict[tok[2]] for tok in context_tokens])
+        ner_idx[:context_len] = np.fromiter(
+            (ent2idx_dict[tok[2]] for tok in context_tokens),
+            dtype=np.int32)
         ner_idxs.append(ner_idx)
 
         # BEM
         for q_tok in ques_tokens:
             stacked = np.asarray(
-                [[c_tok[0] == q_tok[0], c_tok[0] == q_tok[0].lower(), c_tok[0] == q_tok[3]] for c_tok in context_tokens],
+                [[c_tok[0] == q_tok[0], c_tok[0] == q_tok[0].lower(), c_tok[0] == q_tok[3]] for c_tok in
+                 context_tokens],
                 dtype=np.int32)  # (context_len, [orig, lower, lemma])
             bem_idx[:context_len] = bem_idx[:context_len] | stacked
         bem_idxs.append(bem_idx)
@@ -268,9 +316,9 @@ def build_data_aug_features(args, examples, data_type, out_file, tag2idx_dict, e
         ids.append(example["id"])
 
     np.savez(out_file,
-             pos_idxs=pos_idxs,
-             ner_idxs=ner_idxs,
-             bem_idxs=bem_idxs,
+             pos_idxs=np.array(pos_idxs),
+             ner_idxs=np.array(ner_idxs),
+             bem_idxs=np.array(bem_idxs),
              ids=np.array(ids))
     print(f"Built {total} / {total_} instances of features in total")
     meta["total"] = total
@@ -303,7 +351,7 @@ def pre_process(args):
     if args.include_test_examples:
         test_examples = process_file(args.test_file, "test")
         build_data_aug_features(args, test_examples, "test",
-                                            args.test_data_aug_file, tag2idx_dict, ent2idx_dict, is_test=True)
+                                args.test_data_aug_file, tag2idx_dict, ent2idx_dict, is_test=True)
 
 
 if __name__ == '__main__':

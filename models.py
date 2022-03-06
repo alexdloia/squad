@@ -32,9 +32,11 @@ class SAN(nn.Module):
         drop_prob (float): Dropout probability.
     """
 
-    def __init__(self, word_vectors, hidden_size=128, drop_prob=0.4, T=5):
+    def __init__(self, word_vectors, hidden_size=128, drop_prob=0.4, T=5, attn="DotProduct", n_heads=8):
         super(SAN, self).__init__()
         self.hidden_size = hidden_size
+        self.attn = attn
+        self.n_heads = n_heads
 
         self.encode = layers.LexiconEncoder(word_vectors=word_vectors,
                                             hidden_size=hidden_size,
@@ -58,17 +60,22 @@ class SAN(nn.Module):
         self.memory = layers.MemoryGeneration(hidden_size=hidden_size,
                                               num_layers=1,
                                               drop_prob=drop_prob)
+        if attn=="MultiHead":
+            print("Using multihead attn for memGen layer...")
+            self.memory = layers.MultiHeadMemoryGeneration(hidden_size=hidden_size, num_layers=1, drop_prob=drop_prob, n_heads=n_heads)
+        else:
+            print("Using dp attn for memGen layer...")
 
         self.answer = layers.AnswerModule(hidden_size=hidden_size,
                                           drop_prob=drop_prob, T=T)
 
-    def forward(self, pw_idxs, qw_idxs):
+    def forward(self, pw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs):
         p_mask = torch.zeros_like(pw_idxs) != pw_idxs  # (batch_size, p_len)
         q_mask = torch.zeros_like(qw_idxs) != qw_idxs  # (batch_size, q_len)
 
         p_len, q_len = p_mask.sum(-1), q_mask.sum(-1)
 
-        R_p, R_q = self.encode(pw_idxs, qw_idxs, p_mask, q_mask)  # (batch_size, p_len, 600), (batch_size, q_len, 300)
+        R_p, R_q = self.encode(pw_idxs, qw_idxs, p_mask, q_mask, pos_idxs, ner_idxs, bem_idxs)  # (batch_size, p_len, 600), (batch_size, q_len, 300)
 
         E_p = self.ffn_p(R_p)  # (batch_size, p_len, 600) -> (batch_size, p_len, hidden_size) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
         E_q = self.ffn_q(R_q)  # (batch_size, q_len, 300) -> (batch_size, q_len, hidden_size) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
@@ -76,8 +83,14 @@ class SAN(nn.Module):
         H_p = self.context(E_p, p_len)  # (batch_size, p_len, 2 * hidden_size)
         H_q = self.context(E_q, q_len)  # (batch_size, q_len, 2 * hidden_size)
 
+
         p_mask_3d = torch.unsqueeze(p_mask, dim=2) # (batch_size, p_len, 1)
         q_mask_3d = torch.unsqueeze(q_mask, dim=2) # (batch_size, q_len, 1)
+        
+
+        if self.attn=="MultiHead":
+            p_mask_3d = torch.unsqueeze(p_mask_3d, 1).repeat(1, self.n_heads, 1, 1)
+            q_mask_3d = torch.unsqueeze(q_mask_3d, 1).repeat(1, self.n_heads, 1, 1)
         M = self.memory(H_p, H_q, p_mask_3d, q_mask_3d)  # (batch_size, p_len, 2 * hidden_size)
 
         p1, p2 = self.answer(H_p, H_q, M)  # 2 tensors each of shape (batch_size, p_len)
@@ -139,7 +152,7 @@ class SCR(nn.Module):
 
         self.rank = layers.RankerLayer()
 
-    def forward(self, cw_idxs, qw_idxs, candidates):
+    def forward(self, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates):
         # candidates is a (batch_size, num_candidates, 2) tensor
 
         c_mask = torch.zeros_like(cw_idxs) != cw_idxs  # (batch_size, c_len)
@@ -147,7 +160,7 @@ class SCR(nn.Module):
 
         c_len, q_len = c_mask.sum(-1), q_mask.sum(-1)
 
-        R_p, R_q = self.lex(cw_idxs, qw_idxs, c_mask, q_mask)  # (batch_size, p_len, 600), (batch_size, q_len, 300)
+        R_p, R_q = self.lex(cw_idxs, qw_idxs, c_mask, q_mask, pos_idxs, ner_idxs, bem_idxs)  # (batch_size, p_len, 600), (batch_size, q_len, 300)
 
         c_emb = self.ffn_p(
             R_p)  # (batch_size, p_len, 600) -> (batch_size, p_len, hidden_size) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2

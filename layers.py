@@ -10,32 +10,33 @@ from turtle import backward
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from util import masked_softmax, tag_list, ent_list, \
-    get_binary_exact_match_features, indices_to_pos_ner_one_hots, get_lens_from_mask
+import util
+from util import masked_softmax, get_lens_from_mask
 from torch.distributions.bernoulli import Bernoulli
 
 
 class POSNERTagging(nn.Module):
     def __init__(self, pos_emb_size=9, ner_emb_size=8):
         super(POSNERTagging, self).__init__()
-        self.pos_map = nn.Linear(len(tag_list), pos_emb_size)
-        self.ner_map = nn.Linear(len(ent_list), ner_emb_size)
+        # maybe switch to nn.Embedding
+        self.pos_emb = nn.Embedding(util.NUM_POS_TAGS, pos_emb_size)
+        self.ner_emb = nn.Embedding(util.NUM_NER_TAGS, ner_emb_size)
 
-    def forward(self, idxs, mask):
+    def forward(self, pos_idxs, ner_idxs):
         """
 
         Args:
-            idxs: (batch_size, seq_len)
-            mask: (batch_size, seq_len)
+            pos_idxs: (batch_size, seq_len)
+            ner_idxs: (batch_size, seq_len)
 
-        Returns: POS embedding
+        Returns: POS and NER embeddings
 
         """
-        pos_one_hots, ner_one_hots = indices_to_pos_ner_one_hots(idxs, mask)
-        return self.pos_map(pos_one_hots.to(torch.float32)), self.ner_map(ner_one_hots.to(torch.float32))
+        return self.pos_emb(pos_idxs), self.ner_emb(ner_idxs)
 
 
 class LexiconEncoder(nn.Module):
@@ -48,16 +49,16 @@ class LexiconEncoder(nn.Module):
         self.w0 = nn.Linear(300, 280, bias=False)
         self.g_func = nn.Sequential(nn.Linear(300, 280, bias=False), nn.ReLU())
 
-    def forward(self, pw_idxs, qw_idxs, p_mask, q_mask):
+    def forward(self, pw_idxs, qw_idxs, p_mask, q_mask, pos_idxs, ner_idxs, bem_idxs):
         # step 1: embed x (batch_size, p_len)
         embed = self.embed(pw_idxs)  # (batch_size, p_len, embed_size)
 
         # step 2 & 3: get POS and NER tagging for x
-        pos, ner = self.posnertagging(pw_idxs, p_mask)  # (batch_size, p_len, 9), (batch_size, p_len, 8)
+        pos, ner = self.posnertagging(pos_idxs, ner_idxs)  # (batch_size, p_len, 9), (batch_size, p_len, 8)
 
         # step 4: get binary exact match feature
         # this feature is 3 dimensions for 3 kinds of matching between the pw_idxs and the qw_idxs
-        bem = get_binary_exact_match_features(pw_idxs, qw_idxs, p_mask, q_mask)  # (batch_size, p_len, 3)
+        bem = bem_idxs  # (batch_size, p_len, 3)
         # remember that p_mask is a mask over what words are actually there!!
 
         # step 5: get question-enhanced word embedding. requires some math
@@ -101,6 +102,63 @@ class ContextualEmbedding(nn.Module):
         # see BiDAF / SCR for an example
 
         return self.enc(x, lengths)
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, hidden_size, drop_prob, n_heads, selfAttention=False):
+        super(MultiHeadAttention, self).__init__()
+        assert hidden_size % n_heads == 0
+        n = 2
+        if selfAttention:
+            n = 4
+        self.n_head = n_heads
+        self.P = nn.Linear(n*hidden_size, n*hidden_size)
+        self.Qkey = nn.Linear(n*hidden_size, n*hidden_size)
+        self.Qvalue = nn.Linear(n*hidden_size, n*hidden_size)
+
+        # regularization
+        self.attn_drop = nn.Dropout(drop_prob)
+        self.resid_drop = nn.Dropout(drop_prob / 2) # resid_drop generally lower???
+        # projection
+        self.proj = nn.Linear(n*hidden_size, n*hidden_size)
+
+    def forward(self, H_p, H_q, mask):
+        B, p_len, n_embed = H_p.size()
+        B2, q_len, n_embed2 = H_q.size()
+        assert B == B2
+        assert n_embed == n_embed2
+
+        # print(H_p.shape)
+        P = self.P(H_p).view(B, p_len, self.n_head, n_embed // self.n_head).transpose(1, 2) # (B, nh, p_len, 2*hidden_size / n_head)
+        key = self.Qkey(H_q).view(B, q_len, self.n_head, n_embed // self.n_head).transpose(1, 2) # (B, nh, q_len, 2*hidden_size / n_head)
+        val = self.Qvalue(H_q).view(B, q_len, self.n_head, n_embed //self.n_head).transpose(1,2) # (B, nh, q_len, 2*hidden_size / n_head)
+
+        att = (key @ P.transpose(-2, -1)) * (1.0 / math.sqrt(key.size(-1))) # (B, nh, q_len, p_len)
+        C = masked_softmax(att, dim=-2, mask=mask)
+        C = self.attn_drop(C)
+        # print(C.shape)
+        # print(val.shape)
+        y = C.transpose(-2, -1) @ val # (B, nh, p_len, q_len) * (B, nh, q_len, hidden_size)
+        y = y.transpose(1, 2).contiguous().view(B, p_len, n_embed) # (B, nh, p_len, 2*hidden_size)
+
+        y = self.resid_drop(self.proj(y))
+        return y
+
+class MultiHeadMemoryGeneration(nn.Module):
+    def __init__(self, hidden_size, drop_prob, n_heads, num_layers):
+        super(MultiHeadMemoryGeneration, self).__init__()
+        self.hidden_size = hidden_size
+        self.drop_prob = drop_prob
+        self.f_attn = MultiHeadAttention(hidden_size, drop_prob, n_heads)
+        self.f_selfattn = MultiHeadAttention(hidden_size, drop_prob, n_heads, selfAttention=True)
+        self.lstm = nn.LSTM(8 * hidden_size, hidden_size, num_layers, batch_first=True, bidirectional=True)
+    def forward(self, H_p, H_q, p_mask, q_mask):
+        att = self.f_attn(H_p, H_q, q_mask) # (batch_size, p_len, 2*hidden_size)
+        U_p = torch.cat((H_p, att), dim=-1)  # (batch_size, p_len, 4*hidden_size)
+        # print(U_p.shape)
+        U_phat = self.f_selfattn(U_p, U_p, p_mask) # (batch_size, p_len, 4*hidden_size)
+        U = torch.cat((U_p, U_phat), dim=-1)  # (batch_size, p_len, 8*hidden_size)
+        M, _ = self.lstm(U)
+        return M
 
 
 class SANFeedForward(nn.Module):
@@ -162,9 +220,9 @@ class MemoryGeneration(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, H_p, H_q, p_mask, q_mask):
+        _, p_len, _ = H_p.size()
         H_qhat = self.ffn_q(H_q)  # (batch_size, q_len, hidden_size)
         H_phat = self.ffn_p(H_p)  # (batch_size, p_len, hidden_size)
-        # _, p_len, _ = H_p.size()
 
         C = self.dropout(self.f_attn(H_qhat, H_phat, q_mask))  # (batch_size, q_len, p_len)
         # attention from https://arxiv.org/pdf/1706.03762.pdf
@@ -722,7 +780,7 @@ class BiDAFOutput(nn.Module):
 
 
 if __name__ == "__main__":
-    test = "MemoryGeneration"
+    test = "MultiHeadMemoryGeneration"
     batch_size, num_candidates, d, p_len, q_len, T, drop_prob = 5, 4, 3, 10, 15, 5, 0.4
     if test == "RankerLayer":
         """
@@ -795,3 +853,12 @@ if __name__ == "__main__":
         x = torch.randn(batch_size, p_len, d)
         lengths = torch.randint(1, p_len + 1, (batch_size,))
         print(context(x, lengths))
+    elif test == "MultiHeadMemoryGeneration":
+        memGen = MultiHeadMemoryGeneration(hidden_size=128, drop_prob=.4, n_heads=8, num_layers=1)
+        q_len = 10
+        p_len = 30
+        H_q = torch.randn(batch_size, q_len, 2 * 128)
+        H_p = torch.randn(batch_size, p_len, 2 * 128)
+        p_mask=torch.ones(batch_size, 8, p_len, 1)
+        q_mask=torch.ones(batch_size, 8, q_len, 1)
+        print(memGen(H_p=H_p, H_q=H_q, p_mask=p_mask, q_mask=q_mask))

@@ -4,7 +4,6 @@ Author:
     Chris Chute (chute@stanford.edu)
 """
 
-import chunk
 import numpy as np
 import random
 import torch
@@ -18,16 +17,16 @@ import util
 from args import get_train_args
 from collections import OrderedDict
 from json import dumps
-from models import BiDAF, SCR, SAN
+from models import SCR, SAN
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from ujson import load as json_load
 from util import collate_fn, SQuAD, NUM_CANDIDATES
 
-import time
 
 def main(args):
     # Set up logging and devices
+    global cand_model
     args.save_dir = util.get_save_dir(args.save_dir, args.name, training=True)
     log = util.get_logger(args.save_dir, args.name)
     tbx = SummaryWriter(args.save_dir)
@@ -53,16 +52,17 @@ def main(args):
     if args.model == "scr":
         model = SCR(word_vectors=word_vectors,
                     hidden_size=args.hidden_size,
-                    num_candidates=util.NUM_CANDIDATES,
+                    num_candidates=NUM_CANDIDATES,
                     drop_prob=args.drop_prob).to(device)
-        cand_model = BiDAF(word_vectors=word_vectors,
-                    hidden_size=args.hidden_size,
-                    drop_prob=args.drop_prob).to(device)
-    elif args.model == 'san':
+        cand_model = SAN(word_vectors=word_vectors,
+                         hidden_size=args.cand_hidden_size,
+                         drop_prob=args.drop_prob, T=args.cand_time_steps).to(device)
+    else:
         model = SAN(word_vectors=word_vectors,
-                    hidden_size=128,
+                    hidden_size=args.cand_hidden_size,
                     drop_prob=args.drop_prob,
-                    T=5).to(device)
+                    T=args.cand_time_steps,
+                    attn=args.attn).to(device)
     model = nn.DataParallel(model, args.gpu_ids)
     if args.load_model_path:
         log.info(f'Loading checkpoint from {args.load_model_path}...')
@@ -94,20 +94,20 @@ def main(args):
 
     # Get data loader
     log.info('Building dataset...')
-    train_dataset = SQuAD(args.train_record_file, args.use_squad_v2)
+    train_dataset = SQuAD(args.train_record_file, args.train_data_aug_file, args.use_squad_v2)
     train_loader = data.DataLoader(train_dataset,
                                    batch_size=args.batch_size,
                                    shuffle=True,
                                    num_workers=args.num_workers,
                                    collate_fn=collate_fn)
-    dev_dataset = SQuAD(args.dev_record_file, args.use_squad_v2)
+    dev_dataset = SQuAD(args.dev_record_file, args.dev_data_aug_file, args.use_squad_v2)
     dev_loader = data.DataLoader(dev_dataset,
                                  batch_size=args.batch_size,
                                  shuffle=False,
                                  num_workers=args.num_workers,
                                  collate_fn=collate_fn)
 
-    torch.autograd.set_detect_anomaly(True)
+    # torch.autograd.set_detect_anomaly(True)
     # Train
     log.info('Training...')
     steps_till_eval = args.eval_steps
@@ -117,25 +117,30 @@ def main(args):
         log.info(f'Starting epoch {epoch}...')
         with torch.enable_grad(), \
                 tqdm(total=len(train_loader.dataset)) as progress_bar:
-            for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in train_loader:
+            for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, pos_idxs, ner_idxs, bem_idxs, ids in train_loader:
                 # Setup for forward
                 cw_idxs = cw_idxs.to(device)
                 qw_idxs = qw_idxs.to(device)
+                pos_idxs = pos_idxs.to(device)
+                ner_idxs = ner_idxs.to(device)
+                bem_idxs = bem_idxs.to(device)
                 batch_size = cw_idxs.size(0)
                 optimizer.zero_grad()
 
                 if args.model == "scr":
-                    candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), NUM_CANDIDATES, device, train=True)
+                    candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs,
+                                                                   bem_idxs, (y1, y2),
+                                                                   NUM_CANDIDATES, device, train=True)
                     chunk_y.to(device)
 
-                    logprob_chunks = model(cw_idxs, qw_idxs, candidates)
+                    logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates)
 
                     loss = F.nll_loss(logprob_chunks, chunk_y)
                     loss_val = loss.item()
 
                 else:
                     # Forward
-                    log_p1, log_p2 = model(cw_idxs, qw_idxs)
+                    log_p1, log_p2 = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
                     y1, y2 = y1.to(device), y2.to(device)
                     loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
                     loss_val = loss.item()
@@ -166,18 +171,18 @@ def main(args):
                     ema.assign(model)
                     if args.model == 'scr':
                         results, pred_dict = evaluate(model, dev_loader, device,
-                                                    args.dev_eval_file,
-                                                    args.max_ans_len,
-                                                    args.use_squad_v2,
-                                                    cand_model,
-                                                    args.model == "scr")
+                                                      args.dev_eval_file,
+                                                      args.max_ans_len,
+                                                      args.use_squad_v2,
+                                                      cand_model,
+                                                      args.model == "scr")
                     else:
                         results, pred_dict = evaluate(model, dev_loader, device,
-                                                  args.dev_eval_file,
-                                                  args.max_ans_len,
-                                                  args.use_squad_v2,
-                                                  None,
-                                                  args.model == "scr")
+                                                      args.dev_eval_file,
+                                                      args.max_ans_len,
+                                                      args.use_squad_v2,
+                                                      None,
+                                                      args.model == "scr")
                     saver.save(step, model, results[args.metric_name], device)
                     ema.resume(model)
 
@@ -206,16 +211,21 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_
         gold_dict = json_load(fh)
     with torch.no_grad(), \
             tqdm(total=len(data_loader.dataset)) as progress_bar:
-        for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in data_loader:
+        for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, pos_idxs, ner_idxs, bem_idxs, ids in data_loader:
             # Setup for forward
             cw_idxs = cw_idxs.to(device)
             qw_idxs = qw_idxs.to(device)
+            pos_idxs = pos_idxs.to(device)
+            ner_idxs = ner_idxs.to(device)
+            bem_idxs = bem_idxs.to(device)
             batch_size = cw_idxs.size(0)
 
             # Forward
             if chunk:
-                candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, (y1, y2), NUM_CANDIDATES, device, train=True)
-                logprob_chunks = model(cw_idxs, qw_idxs, candidates)
+                candidates, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs,
+                                                               bem_idxs, (y1, y2), NUM_CANDIDATES,
+                                                               device, train=True)
+                logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates)
                 chunk_y.to(device)
 
                 loss = F.nll_loss(logprob_chunks, chunk_y)
@@ -225,7 +235,7 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_
                 prob_chunks = logprob_chunks.exp()
                 starts, ends = util.chunk_discretize(prob_chunks, candidates)
             else:
-                log_p1, log_p2 = model(cw_idxs, qw_idxs)
+                log_p1, log_p2 = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
                 y1, y2 = y1.to(device), y2.to(device)
                 loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
                 nll_meter.update(loss.item(), batch_size)
