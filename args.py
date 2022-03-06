@@ -166,8 +166,8 @@ def get_test_args():
                         default='submission.csv',
                         help='Name for submission file.')
     parser.add_argument('--K_oracle',
-                        type=int
-                        default='0',
+                        type=int,
+                        default=0,
                         help='Toggle K-oracle with given K.')
 
     # Require load_model_path for test.py
