@@ -128,13 +128,13 @@ def main(args):
                 optimizer.zero_grad()
 
                 if args.model == "scr":
-                    candidates, candidate_scores, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs,
-                                                                   bem_idxs, (y1, y2),
-                                                                   NUM_CANDIDATES, device, train=True)
+                    candidates, candidate_scores, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs,
+                                                                                     pos_idxs, ner_idxs,
+                                                                                     bem_idxs, (y1, y2),
+                                                                                     NUM_CANDIDATES, device, train=True)
                     chunk_y.to(device)
                     candidate_scores.to(device)
                     logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates, candidate_scores)
-                    
 
                     logprob_chunks.to(device)
                     # weighted_logprobs = torch.mul(logprob_chunks, candidate_scores)
@@ -220,7 +220,7 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_
                 if name == "rank.alpha":
                     print(name)
                     print(param)
-                        
+
     with torch.no_grad(), \
             tqdm(total=len(data_loader.dataset)) as progress_bar:
         for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, pos_idxs, ner_idxs, bem_idxs, ids in data_loader:
@@ -234,14 +234,15 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_
 
             # Forward
             if chunk:
-                candidates, candidate_scores, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs,
-                                                               bem_idxs, (y1, y2), NUM_CANDIDATES,
-                                                               device, train=True)
+                candidates, candidate_scores, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs,
+                                                                                 ner_idxs,
+                                                                                 bem_idxs, (y1, y2), NUM_CANDIDATES,
+                                                                                 device, train=True)
                 logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates, candidate_scores)
                 candidate_scores.to(device)
                 chunk_y.to(device)
                 # weighted_logprobs = torch.mul(logprob_chunks, candidate_scores)
-                
+
                 loss = F.nll_loss(logprob_chunks, chunk_y)
                 nll_meter.update(loss.item(), batch_size)
 
