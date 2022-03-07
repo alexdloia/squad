@@ -33,7 +33,7 @@ class SAN(nn.Module):
         drop_prob (float): Dropout probability.
     """
 
-    def __init__(self, word_vectors, hidden_size=128, drop_prob=0.4, T=5, attn="MultiHead", n_heads=8):
+    def __init__(self, word_vectors, hidden_size=128, drop_prob=0.4, T=5, attn="DotProduct", n_heads=8):
         super(SAN, self).__init__()
         self.hidden_size = hidden_size
         self.attn = attn
@@ -61,12 +61,12 @@ class SAN(nn.Module):
         self.memory = layers.MemoryGeneration(hidden_size=hidden_size,
                                               num_layers=1,
                                               drop_prob=drop_prob)
-        if attn == "MultiHead":
-            print("Using multihead attn for memGen layer...")
-            self.memory = layers.MultiHeadMemoryGeneration(hidden_size=hidden_size, num_layers=1, drop_prob=drop_prob,
-                                                           n_heads=n_heads)
-        else:
-            print("Using dp attn for memGen layer...")
+        # if attn == "MultiHead":
+        #     print("Using multihead attn for memGen layer...")
+        #     self.memory = layers.MultiHeadMemoryGeneration(hidden_size=hidden_size, num_layers=1, drop_prob=drop_prob,
+        #                                                    n_heads=n_heads)
+        # else:
+        #     print("Using dp attn for memGen layer...")
 
         self.answer = layers.AnswerModule(hidden_size=hidden_size,
                                           drop_prob=drop_prob, T=T)
@@ -91,9 +91,9 @@ class SAN(nn.Module):
         p_mask_3d = torch.unsqueeze(p_mask, dim=2)  # (batch_size, p_len, 1)
         q_mask_3d = torch.unsqueeze(q_mask, dim=2)  # (batch_size, q_len, 1)
 
-        if self.attn == "MultiHead":
-            p_mask_3d = torch.unsqueeze(p_mask_3d, 1).repeat(1, self.n_heads, 1, 1)
-            q_mask_3d = torch.unsqueeze(q_mask_3d, 1).repeat(1, self.n_heads, 1, 1)
+        # if self.attn == "MultiHead":
+        #     p_mask_3d = torch.unsqueeze(p_mask_3d, 1).repeat(1, self.n_heads, 1, 1)
+        #     q_mask_3d = torch.unsqueeze(q_mask_3d, 1).repeat(1, self.n_heads, 1, 1)
         M = self.memory(H_p, H_q, p_mask_3d, q_mask_3d)  # (batch_size, p_len, 2 * hidden_size)
 
         p1, p2 = self.answer(H_p, H_q, M)  # 2 tensors each of shape (batch_size, p_len)

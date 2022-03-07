@@ -56,13 +56,12 @@ def main(args):
                     drop_prob=args.drop_prob).to(device)
         cand_model = SAN(word_vectors=word_vectors,
                          hidden_size=args.cand_hidden_size,
-                         drop_prob=args.drop_prob, attn=args.attn, T=args.cand_time_steps).to(device)
+                         drop_prob=args.drop_prob, T=args.cand_time_steps).to(device)
     else:
         model = SAN(word_vectors=word_vectors,
                     hidden_size=args.cand_hidden_size,
                     drop_prob=args.drop_prob,
-                    T=args.cand_time_steps,
-                    attn=args.attn).to(device)
+                    T=args.cand_time_steps).to(device)
     model = nn.DataParallel(model, args.gpu_ids)
     if args.load_model_path:
         log.info(f'Loading checkpoint from {args.load_model_path}...')
