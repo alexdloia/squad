@@ -105,7 +105,7 @@ def main(args):
             # Forward
             y1, y2 = y1.to(device), y2.to(device)
             if args.model == "scr":
-                candidates, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs,
+                candidates, _, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs,
                                                          (y1, y2), util.NUM_CANDIDATES,
                                                          device, train=False)
 

@@ -111,7 +111,7 @@ def get_train_args():
                         help='Number of epochs for which to train. Negative means forever.')
     parser.add_argument('--drop_prob',
                         type=float,
-                        default=0.2,
+                        default=0.4,
                         help='Probability of zeroing an activation in dropout layers.')
     parser.add_argument('--metric_name',
                         type=str,
