@@ -105,11 +105,11 @@ def main(args):
             # Forward
             y1, y2 = y1.to(device), y2.to(device)
             if args.model == "scr":
-                candidates, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs,
+                candidates, candidate_scores, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs,
                                                          (y1, y2), util.NUM_CANDIDATES,
                                                          device, train=False)
 
-                logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates)
+                logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates, candidate_scores)
                 c_len = cw_idxs.size()[1]
                 c_mask = torch.zeros_like(cw_idxs) != cw_idxs
 
