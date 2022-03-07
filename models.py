@@ -9,7 +9,8 @@ import torch
 import torch.nn as nn
 
 import os
-os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 
 class SAN(nn.Module):
@@ -60,9 +61,10 @@ class SAN(nn.Module):
         self.memory = layers.MemoryGeneration(hidden_size=hidden_size,
                                               num_layers=1,
                                               drop_prob=drop_prob)
-        if attn=="MultiHead":
+        if attn == "MultiHead":
             print("Using multihead attn for memGen layer...")
-            self.memory = layers.MultiHeadMemoryGeneration(hidden_size=hidden_size, num_layers=1, drop_prob=drop_prob, n_heads=n_heads)
+            self.memory = layers.MultiHeadMemoryGeneration(hidden_size=hidden_size, num_layers=1, drop_prob=drop_prob,
+                                                           n_heads=n_heads)
         else:
             print("Using dp attn for memGen layer...")
 
@@ -75,20 +77,21 @@ class SAN(nn.Module):
 
         p_len, q_len = p_mask.sum(-1), q_mask.sum(-1)
 
-        R_p, R_q = self.encode(pw_idxs, qw_idxs, p_mask, q_mask, pos_idxs, ner_idxs, bem_idxs)  # (batch_size, p_len, 600), (batch_size, q_len, 300)
+        R_p, R_q = self.encode(pw_idxs, qw_idxs, p_mask, q_mask, pos_idxs, ner_idxs,
+                               bem_idxs)  # (batch_size, p_len, 600), (batch_size, q_len, 300)
 
-        E_p = self.ffn_p(R_p)  # (batch_size, p_len, 600) -> (batch_size, p_len, hidden_size) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
-        E_q = self.ffn_q(R_q)  # (batch_size, q_len, 300) -> (batch_size, q_len, hidden_size) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
+        E_p = self.ffn_p(
+            R_p)  # (batch_size, p_len, 600) -> (batch_size, p_len, hidden_size) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
+        E_q = self.ffn_q(
+            R_q)  # (batch_size, q_len, 300) -> (batch_size, q_len, hidden_size) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
 
         H_p = self.context(E_p, p_len)  # (batch_size, p_len, 2 * hidden_size)
         H_q = self.context(E_q, q_len)  # (batch_size, q_len, 2 * hidden_size)
 
+        p_mask_3d = torch.unsqueeze(p_mask, dim=2)  # (batch_size, p_len, 1)
+        q_mask_3d = torch.unsqueeze(q_mask, dim=2)  # (batch_size, q_len, 1)
 
-        p_mask_3d = torch.unsqueeze(p_mask, dim=2) # (batch_size, p_len, 1)
-        q_mask_3d = torch.unsqueeze(q_mask, dim=2) # (batch_size, q_len, 1)
-        
-
-        if self.attn=="MultiHead":
+        if self.attn == "MultiHead":
             p_mask_3d = torch.unsqueeze(p_mask_3d, 1).repeat(1, self.n_heads, 1, 1)
             q_mask_3d = torch.unsqueeze(q_mask_3d, 1).repeat(1, self.n_heads, 1, 1)
         M = self.memory(H_p, H_q, p_mask_3d, q_mask_3d)  # (batch_size, p_len, 2 * hidden_size)
@@ -160,7 +163,8 @@ class SCR(nn.Module):
 
         c_len, q_len = c_mask.sum(-1), q_mask.sum(-1)
 
-        R_p, R_q = self.lex(cw_idxs, qw_idxs, c_mask, q_mask, pos_idxs, ner_idxs, bem_idxs)  # (batch_size, p_len, 600), (batch_size, q_len, 300)
+        R_p, R_q = self.lex(cw_idxs, qw_idxs, c_mask, q_mask, pos_idxs, ner_idxs,
+                            bem_idxs)  # (batch_size, p_len, 600), (batch_size, q_len, 300)
 
         c_emb = self.ffn_p(
             R_p)  # (batch_size, p_len, 600) -> (batch_size, p_len, hidden_size) FFN(x) = W_2 ReLU(W_1 x + b_1) + b_2
@@ -176,7 +180,8 @@ class SCR(nn.Module):
         chunk_repr = self.repr(gammas, candidates, hc, hq, c_mask,
                                q_mask)  # (batch_size, num_candidates, 2 * hidden_size)
 
-        out = self.rank(chunk_repr, candidates, hq, q_mask, c_mask, candidate_scores)  # 2 tensors, each (batch_size, num_candidates)
+        out = self.rank(chunk_repr, candidates, hq, q_mask, c_mask,
+                        candidate_scores)  # 2 tensors, each (batch_size, num_candidates)
 
         return out
 
