@@ -49,11 +49,11 @@ def main(args):
                     hidden_size=args.hidden_size,
                     num_candidates=util.NUM_CANDIDATES).to(device)
         cand_model = SAN(word_vectors=word_vectors,
-                         hidden_size=args.cand_hidden_size,
+                         hidden_size=args.cand_hidden_size, attn=args.attn,
                          T=args.cand_time_steps).to(device)
     else:
         model = SAN(word_vectors=word_vectors,
-                    hidden_size=args.cand_hidden_size,
+                    hidden_size=args.cand_hidden_size, attn=args.attn,
                     T=args.cand_time_steps).to(device)
     model = nn.DataParallel(model, gpu_ids)
     if args.load_model_path:
@@ -105,17 +105,18 @@ def main(args):
             # Forward
             y1, y2 = y1.to(device), y2.to(device)
             if args.model == "scr":
-                candidates, _, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs,
+                candidates, candidate_scores, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs,
                                                          (y1, y2), util.NUM_CANDIDATES,
                                                          device, train=False)
 
-                logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates)
+                logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates, candidate_scores)
                 c_len = cw_idxs.size()[1]
                 c_mask = torch.zeros_like(cw_idxs) != cw_idxs
 
                 log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, c_mask, device)
             elif args.K_oracle != 0:
-                candidates, _, _ = util.generate_candidates(model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, (y1, y2), args.K_oracle, device, train=False)
+                candidates, _, _ = util.generate_candidates(model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs,
+                                                            (y1, y2), args.K_oracle, device, train=False)
                 some_log_p1, some_log_p2 = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
                 log_p1, log_p2 = torch.zeros(batch_size, p_len), torch.zeros(batch_size, p_len)
                 log_p1 = log_p1.to(device)
@@ -123,7 +124,7 @@ def main(args):
                 for i in range(batch_size):
                     answer_chunk = torch.Tensor([y1[i], y2[i]])
                     found_y = torch.logical_and(candidates[i, :, 0] == answer_chunk[0],
-                                            candidates[i, :, 1] == answer_chunk[1]).nonzero()
+                                                candidates[i, :, 1] == answer_chunk[1]).nonzero()
                     if len(found_y) > 0:
                         # in K-oracle, we are completely correct if one of our candidates is correct
                         log_p1[i, candidates[i, found_y, 0]] = 1
@@ -131,7 +132,8 @@ def main(args):
                         log_p2[i, candidates[i, found_y, 1]] = 1
                         log_p2[i] = torch.log_softmax(log_p2[i], dim=0)
                     else:
-                        log_p1[i], log_p2[i] = some_log_p1[i], some_log_p2[i] # otherwise we are just our normal function
+                        log_p1[i], log_p2[i] = some_log_p1[i], some_log_p2[
+                            i]  # otherwise we are just our normal function
             else:
                 log_p1, log_p2 = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
             y1, y2 = y1.to(device), y2.to(device)

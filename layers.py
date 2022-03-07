@@ -524,12 +524,14 @@ class RankerLayer(nn.Module):
 
     def __init__(self):
         super(RankerLayer, self).__init__()
+        self.alpha = nn.Parameter(torch.tensor(.5), requires_grad=True)
 
     def forward(self, chunk_repr: torch.Tensor, candidates: torch.Tensor, hq: torch.Tensor, q_mask: torch.Tensor,
-                c_mask: torch.Tensor):
+                c_mask: torch.Tensor, candidate_scores: torch.Tensor):
         """
             chunk_repr (batch_size x num_candidates x 2d) tensor
             candidates (batch_size x num_candidates x 2) tensor
+            candidate_scores (batch_size x num_candidates) tensor
             hq (batch_size, q_len, 2d) tensor
             q_mask : mask on q, (batch_size x q_len) mask - I think?
 
@@ -560,8 +562,11 @@ class RankerLayer(nn.Module):
         cos_sim = torch.bmm(chunk_repr,
                             H)  # (batch_size x num_candidates x 2d) x (batch_size x 2d x 1) = (batch_size x num_candidates x 1)
         cos_sim = cos_sim.squeeze(-1)
-        sm = F.log_softmax(cos_sim, dim=-1)
-        return sm
+
+        prob_chunks = torch.softmax(cos_sim, dim=-1)
+        weighted_prob_chunks = (self.alpha * candidate_scores) + (1-self.alpha) * prob_chunks
+
+        return weighted_prob_chunks.log()
 
 
 class Embedding(nn.Module):
@@ -680,7 +685,7 @@ class BiDAFAttention(nn.Module):
     the attention vector at each timestep, along with the embeddings from
     previous layers, to flow through the attention layer to the modeling layer.
     The output has shape (batch_size, context_len, 8 * hidden_size).
-
+sm
     Args:
         hidden_size (int): Size of hidden activations.
         drop_prob (float): Probability of zero-ing out activations.
