@@ -128,13 +128,13 @@ def main(args):
                 optimizer.zero_grad()
 
                 if args.model == "scr":
-                    candidates, candidate_scores, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs,
-                                                                   bem_idxs, (y1, y2),
-                                                                   NUM_CANDIDATES, device, train=True)
+                    candidates, candidate_scores, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs,
+                                                                                     pos_idxs, ner_idxs,
+                                                                                     bem_idxs, (y1, y2),
+                                                                                     NUM_CANDIDATES, device, train=True)
                     chunk_y.to(device)
                     candidate_scores.to(device)
                     logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates, candidate_scores)
-                    
 
                     logprob_chunks.to(device)
                     # weighted_logprobs = torch.mul(logprob_chunks, candidate_scores)
@@ -220,7 +220,7 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_
                 if name == "rank.alpha":
                     print(name)
                     print(param)
-                        
+
     with torch.no_grad(), \
             tqdm(total=len(data_loader.dataset)) as progress_bar:
         for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, pos_idxs, ner_idxs, bem_idxs, ids in data_loader:
@@ -234,20 +234,15 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_
 
             # Forward
             if chunk:
-                candidates, candidate_scores, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs,
-                                                               bem_idxs, (y1, y2), NUM_CANDIDATES,
-                                                               device, train=True)
+                candidates, candidate_scores, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs,
+                                                                                 ner_idxs,
+                                                                                 bem_idxs, (y1, y2), NUM_CANDIDATES,
+                                                                                 device, train=False)
                 logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates, candidate_scores)
                 candidate_scores.to(device)
-                chunk_y.to(device)
-                # weighted_logprobs = torch.mul(logprob_chunks, candidate_scores)
-                
-                loss = F.nll_loss(logprob_chunks, chunk_y)
-                nll_meter.update(loss.item(), batch_size)
-
-                # Get F1 and EM scores
-                prob_chunks = logprob_chunks.exp()
-                starts, ends = util.chunk_discretize(prob_chunks, candidates)
+                c_len = cw_idxs.size()[1]
+                c_mask = torch.zeros_like(cw_idxs) != cw_idxs
+                log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, c_mask, device)
 
                 # Checking alpha
                 for child in model.children():
@@ -258,13 +253,13 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_
 
             else:
                 log_p1, log_p2 = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
-                y1, y2 = y1.to(device), y2.to(device)
-                loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
-                nll_meter.update(loss.item(), batch_size)
+            y1, y2 = y1.to(device), y2.to(device)
+            loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
+            nll_meter.update(loss.item(), batch_size)
 
-                # Get F1 and EM scores
-                p1, p2 = log_p1.exp(), log_p2.exp()
-                starts, ends = util.discretize(p1, p2, max_len, use_squad_v2)
+            # Get F1 and EM scores
+            p1, p2 = log_p1.exp(), log_p2.exp()
+            starts, ends = util.discretize(p1, p2, max_len, use_squad_v2)
 
             # Log info
             progress_bar.update(batch_size)
