@@ -56,7 +56,7 @@ def main(args):
                     drop_prob=args.drop_prob).to(device)
         cand_model = SAN(word_vectors=word_vectors,
                          hidden_size=args.cand_hidden_size,
-                         drop_prob=args.drop_prob, T=args.cand_time_steps).to(device)
+                         drop_prob=args.drop_prob, attn=args.attn, T=args.cand_time_steps).to(device)
     else:
         model = SAN(word_vectors=word_vectors,
                     hidden_size=args.cand_hidden_size,
@@ -133,13 +133,13 @@ def main(args):
                                                                    NUM_CANDIDATES, device, train=True)
                     chunk_y.to(device)
                     candidate_scores.to(device)
-                    logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates)
+                    logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates, candidate_scores)
                     
-                    logprob_chunks.to(device)
-                    weighted_logprobs = torch.mul(logprob_chunks, candidate_scores)
 
-                    weighted_logprobs.to(device)
-                    loss = F.nll_loss(weighted_logprobs, chunk_y)
+                    logprob_chunks.to(device)
+                    # weighted_logprobs = torch.mul(logprob_chunks, candidate_scores)
+                    # weighted_logprobs.to(device)
+                    loss = F.nll_loss(logprob_chunks, chunk_y)
                     loss_val = loss.item()
 
                 else:
@@ -213,6 +213,14 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_
     pred_dict = {}
     with open(eval_file, 'r') as fh:
         gold_dict = json_load(fh)
+    # Checking alpha
+    if chunk:
+        for child in model.children():
+            for name, param in child.named_parameters():
+                if name == "rank.alpha":
+                    print(name)
+                    print(param)
+                        
     with torch.no_grad(), \
             tqdm(total=len(data_loader.dataset)) as progress_bar:
         for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, pos_idxs, ner_idxs, bem_idxs, ids in data_loader:
@@ -229,17 +237,25 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_
                 candidates, candidate_scores, chunk_y = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs,
                                                                bem_idxs, (y1, y2), NUM_CANDIDATES,
                                                                device, train=True)
-                logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates)
+                logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates, candidate_scores)
                 candidate_scores.to(device)
                 chunk_y.to(device)
-                weighted_logprobs = torch.mul(logprob_chunks, candidate_scores)
+                # weighted_logprobs = torch.mul(logprob_chunks, candidate_scores)
                 
-                loss = F.nll_loss(weighted_logprobs, chunk_y)
+                loss = F.nll_loss(logprob_chunks, chunk_y)
                 nll_meter.update(loss.item(), batch_size)
 
                 # Get F1 and EM scores
-                prob_chunks = weighted_logprobs.exp()
+                prob_chunks = logprob_chunks.exp()
                 starts, ends = util.chunk_discretize(prob_chunks, candidates)
+
+                # Checking alpha
+                for child in model.children():
+                    for name, param in child.named_parameters():
+                        if name == "rank.alpha":
+                            print(name)
+                            print(param)
+
             else:
                 log_p1, log_p2 = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
                 y1, y2 = y1.to(device), y2.to(device)

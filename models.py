@@ -32,7 +32,7 @@ class SAN(nn.Module):
         drop_prob (float): Dropout probability.
     """
 
-    def __init__(self, word_vectors, hidden_size=128, drop_prob=0.4, T=5, attn="DotProduct", n_heads=8):
+    def __init__(self, word_vectors, hidden_size=128, drop_prob=0.4, T=5, attn="MultiHead", n_heads=8):
         super(SAN, self).__init__()
         self.hidden_size = hidden_size
         self.attn = attn
@@ -152,7 +152,7 @@ class SCR(nn.Module):
 
         self.rank = layers.RankerLayer()
 
-    def forward(self, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates):
+    def forward(self, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates, candidate_scores):
         # candidates is a (batch_size, num_candidates, 2) tensor
 
         c_mask = torch.zeros_like(cw_idxs) != cw_idxs  # (batch_size, c_len)
@@ -176,7 +176,7 @@ class SCR(nn.Module):
         chunk_repr = self.repr(gammas, candidates, hc, hq, c_mask,
                                q_mask)  # (batch_size, num_candidates, 2 * hidden_size)
 
-        out = self.rank(chunk_repr, candidates, hq, q_mask, c_mask)  # 2 tensors, each (batch_size, num_candidates)
+        out = self.rank(chunk_repr, candidates, hq, q_mask, c_mask, candidate_scores)  # 2 tensors, each (batch_size, num_candidates)
 
         return out
 
