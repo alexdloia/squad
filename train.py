@@ -26,7 +26,6 @@ from util import collate_fn, SQuAD, NUM_CANDIDATES
 
 def main(args):
     # Set up logging and devices
-    global cand_model
     args.save_dir = util.get_save_dir(args.save_dir, args.name, training=True)
     log = util.get_logger(args.save_dir, args.name)
     tbx = SummaryWriter(args.save_dir)
@@ -49,6 +48,7 @@ def main(args):
     # Get model
     log.info('Building model...')
     log.info(f"Running with model {args.model}")
+    cand_model = None
     if args.model == "scr":
         model = SCR(word_vectors=word_vectors,
                     hidden_size=args.hidden_size,
@@ -87,9 +87,8 @@ def main(args):
                                  log=log)
 
     # Get optimizer and scheduler
-    optimizer = optim.Adadelta(model.parameters(), args.lr,
-                               weight_decay=args.l2_wd)
-    scheduler = sched.LambdaLR(optimizer, lambda s: 1.)  # Constant LR
+    optimizer = optim.Adadelta(model.parameters(), args.lr, weight_decay=args.l2_wd)
+    scheduler = sched.LambdaLR(optimizer, lambda epochs: 0.002 * 0.5 ** (epochs // 10))  # SAN LR
 
     # Get data loader
     log.info('Building dataset...')
@@ -179,6 +178,12 @@ def main(args):
                                                       args.use_squad_v2,
                                                       cand_model,
                                                       args.model == "scr")
+                        # Checking alpha
+                        for child in model.children():
+                            for name, param in child.named_parameters():
+                                if name == "rank.alpha":
+                                    log.info(name)
+                                    log.info(param)
                     else:
                         results, pred_dict = evaluate(model, dev_loader, device,
                                                       args.dev_eval_file,
@@ -242,13 +247,6 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_
                 c_len = cw_idxs.size()[1]
                 c_mask = torch.zeros_like(cw_idxs) != cw_idxs
                 log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, c_mask, device)
-
-                # Checking alpha
-                for child in model.children():
-                    for name, param in child.named_parameters():
-                        if name == "rank.alpha":
-                            print(name)
-                            print(param)
 
             else:
                 log_p1, log_p2 = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)

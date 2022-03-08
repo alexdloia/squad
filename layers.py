@@ -566,7 +566,7 @@ class RankerLayer(nn.Module):
         prob_chunks = torch.softmax(cos_sim, dim=-1)
         weighted_prob_chunks = (self.alpha * candidate_scores) + (1-self.alpha) * prob_chunks
 
-        return weighted_prob_chunks.log()
+        return F.normalize(weighted_prob_chunks, dim=-1).log()
 
 
 class Embedding(nn.Module):
