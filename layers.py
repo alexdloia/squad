@@ -256,12 +256,25 @@ class AnswerModule(nn.Module):
         self.T = T
         self.W_4 = nn.Linear(2 * hidden_size, 1, bias=False)
         self.W_5 = nn.Linear(2 * hidden_size, 2 * hidden_size, bias=False)
-        self.W_6 = nn.Linear(2 * hidden_size, 2 * hidden_size, bias=False)
-        self.W_7 = nn.Linear(2 * hidden_size, 4 * hidden_size, bias=False)
+        self.W_6 = nn.Linear(2 * hidden_size, 4 * hidden_size, bias=False)
+        self.W_7 = nn.Linear(2 * hidden_size, 6 * hidden_size, bias=False)
         self.gru = nn.GRU(2 * hidden_size, 2 * hidden_size, num_layers=1,
                           batch_first=True,
                           bidirectional=False,
                           dropout=drop_prob)
+
+        # 
+        self.relu = nn.ReLU()
+        self.gru_p = nn.GRU(2 * hidden_size, 2 * hidden_size, num_layers=1,
+                          batch_first=True,
+                          bidirectional=False,
+                          dropout=drop_prob)
+        self.W_4p = nn.Linear(2 * hidden_size, 1, bias=False)
+        self.W_5p = nn.Linear(2 * hidden_size, 2 * hidden_size, bias=False)
+
+        self.W_8 = nn.Linear(6*hidden_size, 6*hidden_size, bias=False)
+
+
 
     def forward(self, H_p, H_q, M):
         # answer module computes over T memory steps and outputs answer span
@@ -269,6 +282,7 @@ class AnswerModule(nn.Module):
         _, p_len, _ = H_p.size()
 
         s = [H_p.new_zeros(size=(batch_size, 2 * self.hidden_size)) for _ in range(self.T)]
+        s_p = [H_p.new_zeros(size=(batch_size, 2*self.hidden_size)) for _ in range(self.T)]
 
         alpha = self.W_4(H_q)  # (batch_size, q_len, 1)
         alpha = torch.squeeze(alpha, dim=2)  # (batch_size, q_len)
@@ -276,6 +290,14 @@ class AnswerModule(nn.Module):
         alpha = torch.unsqueeze(alpha, dim=1)  # (batch_size, q_len, 1) for bmm
         alpha = torch.bmm(alpha, H_q)
         s[0] = torch.squeeze(alpha, dim=1)  # sum_j \alpha_j (H_q)_j for each batch
+
+        alpha_p = self.W_4p(H_p) # (batch_size, p_len, 1)
+        alpha_p = torch.squeeze(alpha_p, dim=2) # (batch_size, p_len)
+        alpha_p = torch.softmax(alpha_p, dim=1) # (batch_size, q_len)
+        alpha_p = torch.unsqueeze(alpha_p, dim=1)
+        alpha_p = torch.bmm(alpha_p, H_p) # (batch_size, 2*hidden_size)
+
+        s_p[0] = torch.squeeze(alpha_p, dim=1)
 
         for t in range(1, self.T):
             s_tmp = torch.unsqueeze(s[t - 1], dim=2)  # (batch_size, 2 * hidden_size, 1) for bmm
@@ -291,6 +313,20 @@ class AnswerModule(nn.Module):
             s_tmp, _ = self.gru(s_tmp, x)
             s[t] = torch.squeeze(s_tmp, dim=1)  # (batch_size, 2 * hidden_size)
 
+
+            # state for H_p
+            s_tmp_p = torch.unsqueeze(s_p[t - 1], dim=2)  # (batch_size, 2 * hidden_size, 1) for bmm
+            beta_p = torch.bmm(self.W_5p(M), s_tmp_p)
+            beta_p = torch.squeeze(beta_p, dim=2)  # (batch_size, p_len)
+            beta_p = torch.softmax(beta_p, dim=1)  # softmax across the non-batch dimension. (batch_size, p_len)
+
+            beta_p = torch.unsqueeze(beta_p, dim=1)
+            x_p = torch.bmm(beta_p, M)  # sum beta_j M_j for all j, all batch (batch_size, 2 * hidden_size)
+            x_p = torch.squeeze(x_p, dim=1)  # (batch_size, 2 * hidden_size)
+            s_tmp_p = torch.unsqueeze(s[t - 1], dim=1)  # (batch_size, 1, 2 * hidden_size)
+            x_p = torch.unsqueeze(x_p, dim=0)  # (1, batch_size, 2 * hidden_size)
+            s_tmp_p, _ = self.gru(s_tmp_p, x_p)
+            s_p[t] = torch.squeeze(s_tmp_p, dim=1)  # (batch_size, 2 * hidden_size)
         # Finally, we get our probability distributions
 
         if self.training:  # dropout during training
@@ -308,15 +344,18 @@ class AnswerModule(nn.Module):
                 continue
 
             s_tmp = torch.unsqueeze(s[t], dim=2)  # (batch_size, 2 * hidden_size, 1)
-            w6_tmp = torch.bmm(self.W_6(M), s_tmp)
+            s_tmp_p = torch.unsqueeze(s_p[t], dim=2)
+            s_tmp_qp = torch.cat((s_tmp, s_tmp_p), dim=1) # (batch_size, 4 * hidden_size, 1)
+            w6_tmp = torch.bmm(self.W_6(M), s_tmp_qp)
             w6_tmp = torch.squeeze(w6_tmp, dim=2)
             p1_tmp = torch.softmax(w6_tmp, dim=1)
             p1_tmp_3d = torch.unsqueeze(p1_tmp, dim=1)  # (batch_size, 1, p_len)
 
             s2 = torch.bmm(p1_tmp_3d, M)  # (batch_size, 1, 2 * hidden_size)
             s2 = torch.squeeze(s2, dim=1)
-            s2 = torch.cat((s[t], s2), dim=1)
-            s2 = torch.unsqueeze(s2, dim=2)  # (batch_size, 4 * hidden_size)
+            s2 = torch.cat((s[t], s_p[t], s2), dim=1)
+            s2 = torch.unsqueeze(s2, dim=2)  # (batch_size, 6 * hidden_size, 1)
+            s2 = self.relu(self.W_8(s2.transpose(2, 1))).transpose(1, 2)
 
             w7_tmp = torch.bmm(self.W_7(M), s2)  # (batch_size, p_len, 1)
             w7_tmp = torch.squeeze(w7_tmp, dim=2)
@@ -785,7 +824,7 @@ class BiDAFOutput(nn.Module):
 
 
 if __name__ == "__main__":
-    test = "MultiHeadMemoryGeneration"
+    test = "AnswerModule"
     batch_size, num_candidates, d, p_len, q_len, T, drop_prob = 5, 4, 3, 10, 15, 5, 0.4
     if test == "RankerLayer":
         """
@@ -841,7 +880,6 @@ if __name__ == "__main__":
         H_p = torch.randn(batch_size, p_len, 2 * d)
         H_q = torch.randn(batch_size, q_len, 2 * d)
         M = torch.rand(batch_size, p_len, 2 * d)
-
         log_p1, log_p2 = answer(H_p, H_q, M)
         print(log_p1, log_p2)
     elif test == "MemoryGeneration":
