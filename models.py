@@ -36,7 +36,6 @@ class SAN(nn.Module):
     def __init__(self, word_vectors, hidden_size=128, drop_prob=0.4, T=5, attn="DotProduct", n_heads=8):
         super(SAN, self).__init__()
         self.hidden_size = hidden_size
-        self.attn = attn
         self.n_heads = n_heads
 
         self.encode = layers.LexiconEncoder(word_vectors=word_vectors,
