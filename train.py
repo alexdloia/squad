@@ -26,7 +26,6 @@ from util import collate_fn, SQuAD, NUM_CANDIDATES
 
 def main(args):
     # Set up logging and devices
-    global cand_model
     args.save_dir = util.get_save_dir(args.save_dir, args.name, training=True)
     log = util.get_logger(args.save_dir, args.name)
     tbx = SummaryWriter(args.save_dir)
@@ -49,6 +48,7 @@ def main(args):
     # Get model
     log.info('Building model...')
     log.info(f"Running with model {args.model}")
+    cand_model = None
     if args.model == "scr":
         model = SCR(word_vectors=word_vectors,
                     hidden_size=args.hidden_size,

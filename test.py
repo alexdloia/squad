@@ -49,11 +49,11 @@ def main(args):
                     hidden_size=args.hidden_size,
                     num_candidates=util.NUM_CANDIDATES).to(device)
         cand_model = SAN(word_vectors=word_vectors,
-                         hidden_size=args.cand_hidden_size, attn=args.attn,
+                         hidden_size=args.cand_hidden_size,
                          T=args.cand_time_steps).to(device)
     else:
         model = SAN(word_vectors=word_vectors,
-                    hidden_size=args.cand_hidden_size, attn=args.attn,
+                    hidden_size=args.cand_hidden_size,
                     T=args.cand_time_steps).to(device)
     model = nn.DataParallel(model, gpu_ids)
     if args.load_model_path:
