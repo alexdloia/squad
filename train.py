@@ -88,7 +88,10 @@ def main(args):
 
     # Get optimizer and scheduler
     optimizer = optim.Adadelta(model.parameters(), args.lr, weight_decay=args.l2_wd)
-    scheduler = sched.LambdaLR(optimizer, lambda s: 0.002 * 0.5 ** (s // 130000 // 10))  # SAN LR
+    if args.lr_sched == 'san':
+        scheduler = sched.LambdaLR(optimizer, lambda epochs: 0.002 * 0.5 ** (epochs // 10))  # SAN LR
+    else:
+        scheduler = sched.LambdaLR(optimizer, lambda epochs: max(0.0005, args.lr * 0.5 ** (epochs // 5)))  # custom LR
 
     # Get data loader
     log.info('Building dataset...')
@@ -112,6 +115,7 @@ def main(args):
     epoch = step // len(train_dataset)
     while epoch != args.num_epochs:
         epoch += 1
+        scheduler.step()
         log.info(f'Starting epoch {epoch}...')
         with torch.enable_grad(), \
                 tqdm(total=len(train_loader.dataset)) as progress_bar:
@@ -151,7 +155,6 @@ def main(args):
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
                 optimizer.step()
-                scheduler.step()
                 ema(model, step // batch_size)
 
                 # Log info
