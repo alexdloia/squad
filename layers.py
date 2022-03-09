@@ -564,7 +564,7 @@ class RankerLayer(nn.Module):
         cos_sim = cos_sim.squeeze(-1)
 
         prob_chunks = torch.softmax(cos_sim, dim=-1)
-        weighted_prob_chunks = (self.alpha * candidate_scores) + (1-self.alpha) * prob_chunks
+        weighted_prob_chunks = (torch.sigmoid(self.alpha) * candidate_scores) + (1-torch.sigmoid(self.alpha)) * prob_chunks
 
         return F.normalize(weighted_prob_chunks, dim=-1).log()
 
