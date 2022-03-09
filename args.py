@@ -97,6 +97,10 @@ def get_train_args():
                         type=int,
                         default=50000,
                         help='Number of steps between successive evaluations.')
+    parser.add_argument('--lr_sched',
+                        type=str,
+                        default="san",
+                        help='Learning rate lambda function.')
     parser.add_argument('--lr',
                         type=float,
                         default=0.002,
