@@ -138,9 +138,6 @@ def get_train_args():
                         type=float,
                         default=0.999,
                         help='Decay rate for exponential moving average of parameters.')
-    parser.add_argument('--only_dcr',
-                        action='store_true',
-                        help='Whether to only use DCR in Ranker layer.')
 
     args = parser.parse_args()
 
@@ -282,3 +279,6 @@ def add_train_test_args(parser):
                         type=str,
                         default="DotProduct",
                         help='Attention to use for SAN')
+    parser.add_argument('--only_dcr',
+                        action='store_true',
+                        help='Whether to only use DCR in Ranker layer.')
