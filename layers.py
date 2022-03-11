@@ -522,9 +522,11 @@ class RankerLayer(nn.Module):
     """ Rank the candidate chunks with softmax
     """
 
-    def __init__(self):
+    def __init__(self, only_dcr=False):
         super(RankerLayer, self).__init__()
-        self.alpha = nn.Parameter(torch.tensor(.5), requires_grad=True)
+        if not only_dcr:
+            self.alpha = nn.Parameter(torch.tensor(.5), requires_grad=True)
+        self.only_dcr = only_dcr
 
     def forward(self, chunk_repr: torch.Tensor, candidates: torch.Tensor, hq: torch.Tensor, q_mask: torch.Tensor,
                 c_mask: torch.Tensor, candidate_scores: torch.Tensor):
@@ -562,6 +564,9 @@ class RankerLayer(nn.Module):
         cos_sim = torch.bmm(chunk_repr,
                             H)  # (batch_size x num_candidates x 2d) x (batch_size x 2d x 1) = (batch_size x num_candidates x 1)
         cos_sim = cos_sim.squeeze(-1)
+
+        if self.only_dcr:
+            return F.log_softmax(cos_sim, dim=-1)
 
         prob_chunks = torch.softmax(cos_sim, dim=-1)
         weighted_prob_chunks = (torch.sigmoid(self.alpha) * candidate_scores) + (1-torch.sigmoid(self.alpha)) * prob_chunks
