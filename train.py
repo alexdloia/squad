@@ -88,10 +88,12 @@ def main(args):
 
     # Get optimizer and scheduler
     optimizer = optim.Adadelta(model.parameters(), args.lr, weight_decay=args.l2_wd)
+    lr_func = lambda epochs: 1.
     if args.lr_sched == 'san':
-        scheduler = sched.LambdaLR(optimizer, lambda epochs: 0.5 ** (epochs // 10))  # SAN LR
-    else:
-        scheduler = sched.LambdaLR(optimizer, lambda epochs: max(0.5 ** 5, 0.5 ** (epochs // 5)))  # custom LR
+        lr_func = lambda epochs: 0.5 ** (epochs // 10)  # SAN LR
+    elif args.lr_sched == 'custom':
+        lr_func = lambda epochs: max(0.5 ** 5, 0.5 ** (epochs // 5))  # custom LR
+    scheduler = sched.LambdaLR(optimizer, lr_func)
 
     # Get data loader
     log.info('Building dataset...')

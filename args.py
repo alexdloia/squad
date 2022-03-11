@@ -100,6 +100,7 @@ def get_train_args():
     parser.add_argument('--lr_sched',
                         type=str,
                         default="san",
+                        choices=("san", "custom", "none"),
                         help='Learning rate lambda function.')
     parser.add_argument('--lr',
                         type=float,
