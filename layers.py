@@ -561,8 +561,7 @@ class RankerLayer(nn.Module):
         last_forwards_hq = hq[torch.arange(batch_size), q_last_indices, :d]  # batch_size x d
         first_backwards_hq = hq[:, 0, d:].squeeze(1)
         H = torch.cat((last_forwards_hq, first_backwards_hq), dim=-1).unsqueeze(-1)  # batch_size x 2d x 1
-        cos_sim = torch.bmm(chunk_repr,
-                            H)  # (batch_size x num_candidates x 2d) x (batch_size x 2d x 1) = (batch_size x num_candidates x 1)
+        cos_sim = torch.bmm(chunk_repr, H)  # (batch_size x num_candidates x 2d) x (batch_size x 2d x 1) = (batch_size x num_candidates x 1)
         cos_sim = cos_sim.squeeze(-1)
 
         if self.only_dcr:

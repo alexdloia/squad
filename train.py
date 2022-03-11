@@ -116,7 +116,6 @@ def main(args):
     epoch = step // len(train_dataset)
     while epoch != args.num_epochs:
         epoch += 1
-        scheduler.step()
         log.info(f'Starting epoch {epoch}...')
         with torch.enable_grad(), \
                 tqdm(total=len(train_loader.dataset)) as progress_bar:
@@ -212,6 +211,7 @@ def main(args):
                                    step=step,
                                    split='dev',
                                    num_visuals=args.num_visuals)
+        scheduler.step()
 
 
 def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_model=None, chunk=False):
