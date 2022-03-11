@@ -139,7 +139,6 @@ def get_train_args():
                         default=0.999,
                         help='Decay rate for exponential moving average of parameters.')
     parser.add_argument('--only_dcr',
-                        type=bool,
                         action='store_true',
                         help='Whether to only use DCR in Ranker layer.')
 
