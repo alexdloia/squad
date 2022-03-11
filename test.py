@@ -47,7 +47,8 @@ def main(args):
     if args.model == "scr":
         model = SCR(word_vectors=word_vectors,
                     hidden_size=args.hidden_size,
-                    num_candidates=util.NUM_CANDIDATES).to(device)
+                    num_candidates=util.NUM_CANDIDATES,
+                    only_dcr=args.only_dcr).to(device)
         cand_model = SAN(word_vectors=word_vectors,
                          hidden_size=args.cand_hidden_size,
                          T=args.cand_time_steps).to(device)
