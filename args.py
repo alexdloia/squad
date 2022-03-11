@@ -103,7 +103,7 @@ def get_train_args():
                         help='Learning rate lambda function.')
     parser.add_argument('--lr',
                         type=float,
-                        default=0.002,
+                        default=0.05,
                         help='Learning rate.')
     parser.add_argument('--l2_wd',
                         type=float,
