@@ -43,7 +43,6 @@ def main(args):
     # Get embeddings
     log.info('Loading embeddings...')
     word_vectors = util.torch_from_json(args.word_emb_file)
-    print(word_vectors[0:100])
 
     # Get model
     log.info('Building model...')
