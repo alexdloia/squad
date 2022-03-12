@@ -20,7 +20,7 @@ from collections import Counter
 
 import time
 
-NUM_CANDIDATES = 20
+NUM_CANDIDATES = 3
 NUM_POS_TAGS = 50 + 1 # adjust for pad value
 NUM_NER_TAGS = 19 + 1
 POS_UNK = 47
