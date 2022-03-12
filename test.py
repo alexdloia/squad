@@ -112,9 +112,10 @@ def main(args):
             # Forward
             y1, y2 = y1.to(device), y2.to(device)
             if args.model == "scr":
-                candidates, candidate_scores, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs,
-                                                         (y1, y2), util.NUM_CANDIDATES,
-                                                         device, train=False)
+                candidates, candidate_scores, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs,
+                                                                           ner_idxs, bem_idxs,
+                                                                           (y1, y2), util.NUM_CANDIDATES,
+                                                                           device, train=False)
 
                 logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates, candidate_scores)
                 c_len = cw_idxs.size()[1]
@@ -138,7 +139,8 @@ def main(args):
                 for i in range(batch_size):
                     answer_chunk = torch.Tensor([y1[i], y2[i]])
 
-                    found_y = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
+                    found_y = torch.logical_and(candidates[i, :, 0] == answer_chunk[0],
+                                                candidates[i, :, 1] == answer_chunk[1]).nonzero()
                     if len(found_y) > 0:
                         # in K-oracle, we are completely correct if one of our candidates is correct
                         idx_correct = found_y[0][0]
@@ -153,7 +155,8 @@ def main(args):
                         rat += 1
                         print("+", end="")
                     else:
-                        log_p1[i], log_p2[i] = some_log_p1[i], some_log_p2[i]  # otherwise we are just our normal function
+                        log_p1[i], log_p2[i] = some_log_p1[i], some_log_p2[
+                            i]  # otherwise we are just our normal function
                         print("-", end="")
                 if args.K_oracle != 0:
                     log.info(rat / batch_size)
@@ -187,7 +190,8 @@ def main(args):
     pickle.dump((k_oracles, k_oracle_data / cnt), open(k_oracle_file, "wb"))
     # Log results (except for test set, since it does not come with labels)
     if args.split != 'test':
-        results = util.eval_dicts(gold_dict, pred_dict, args.use_squad_v2)
+        results = util.eval_dicts(gold_dict, pred_dict, args.use_squad_v2, args.q_breakdown,
+                                  args.save_dir + '/q_breakdown.json')
         results_list = [('NLL', nll_meter.avg),
                         ('F1', results['F1']),
                         ('EM', results['EM'])]

@@ -24,7 +24,7 @@ from collections import Counter
 import time
 
 NUM_CANDIDATES = 3
-NUM_POS_TAGS = 50 + 1 # adjust for pad value
+NUM_POS_TAGS = 50 + 1  # adjust for pad value
 NUM_NER_TAGS = 19 + 1
 POS_UNK = 47
 NER_UNK = 18
@@ -41,6 +41,7 @@ def plot_K(files, names):
 
 def get_lens_from_mask(mask):
     return mask.sum(dim=-1)
+
 
 def convert_probs(logprob_chunks, candidates, c_len, c_mask, device):
     """
@@ -61,7 +62,8 @@ def convert_probs(logprob_chunks, candidates, c_len, c_mask, device):
     return log_p1, log_p2
 
 
-def generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, ys, num_candidates, device, train=True):
+def generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, ys, num_candidates, device,
+                        train=True):
     """Given a candidate model, generate the candidates list for input into the SCr model along with a chunk_y which
     represents the solution index.
 
@@ -91,7 +93,8 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_id
         candidate_scores[i] = top_candidate_scores
         if train:  # only supply correct answer during train time
             answer_chunk = torch.Tensor([y1[i], y2[i]])
-            chunky = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
+            chunky = torch.logical_and(candidates[i, :, 0] == answer_chunk[0],
+                                       candidates[i, :, 1] == answer_chunk[1]).nonzero()
             if len(chunky) > 0:
                 # the correct answer is simply the index where we found the answer
                 chunk_y[i] = chunky[0]
@@ -125,7 +128,7 @@ def get_candidates_full(p1, p2, num_candidates):
     proposed = torch.unique(proposed, dim=0)
 
     scores = p1[proposed[:, 0]] * p2[proposed[:, 1]]
-    sorted_scores, _ = torch.sort(scores,descending=True)
+    sorted_scores, _ = torch.sort(scores, descending=True)
     cands = proposed[torch.argsort(scores, descending=True)[:num_candidates]]
     scores = sorted_scores[:num_candidates]
     l = len(cands)
@@ -839,22 +842,43 @@ def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
     return max(scores_for_ground_truths)
 
 
-def eval_dicts(gold_dict, pred_dict, no_answer):
+def eval_dicts(gold_dict, pred_dict, no_answer, q_breakdown=False, q_breakdown_path=None):
     avna = f1 = em = total = 0
+    q_breakdown_dict = {"why": {}, "how": {}, "what": {}, "which": {}, "where": {}, "when": {}, "who": {}}
     for key, value in pred_dict.items():
         total += 1
         ground_truths = gold_dict[key]['answers']
         prediction = value
-        em += metric_max_over_ground_truths(compute_em, prediction, ground_truths)
-        f1 += metric_max_over_ground_truths(compute_f1, prediction, ground_truths)
+        this_em = metric_max_over_ground_truths(compute_em, prediction, ground_truths)
+        this_f1 = metric_max_over_ground_truths(compute_f1, prediction, ground_truths)
+        em += this_em
+        f1 += this_f1
         if no_answer:
-            avna += compute_avna(prediction, ground_truths)
+            this_avna = compute_avna(prediction, ground_truths)
+            avna += this_avna
+        if q_breakdown:
+            for q_word, q_eval_dict in q_breakdown_dict.items():
+                if q_word in gold_dict[key]['question'].lower():
+                    q_eval_dict["total"] = q_eval_dict.get("total", 0) + 1
+                    q_eval_dict["EM"] = q_eval_dict.get("EM", 0) + this_em
+                    q_eval_dict["F1"] = q_eval_dict.get("F1", 0) + this_f1
+                    if no_answer:
+                        q_eval_dict["AvNA"] = q_eval_dict.get("AvNA", 0) + this_avna
+
+
 
     eval_dict = {'EM': 100. * em / total,
                  'F1': 100. * f1 / total}
 
     if no_answer:
         eval_dict['AvNA'] = 100. * avna / total
+
+    if q_breakdown:
+        for q_word, q_eval_dict in q_breakdown_dict.items():
+            q_eval_dict["EM"] = 100. * q_eval_dict["EM"] / q_eval_dict["total"]
+            q_eval_dict["F1"] = 100. * q_eval_dict["F1"] / q_eval_dict["total"]
+            q_eval_dict["AvNA"] = 100. * q_eval_dict["AvNA"] / q_eval_dict["total"]
+        json.dump(q_breakdown_dict, open(q_breakdown_path, 'w'))
 
     return eval_dict
 
@@ -910,6 +934,7 @@ def compute_f1(a_gold, a_pred):
     recall = 1.0 * num_same / len(gold_toks)
     f1 = (2 * precision * recall) / (precision + recall)
     return f1
+
 
 def test():
     test = "cand_full"
