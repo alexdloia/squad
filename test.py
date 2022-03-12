@@ -123,17 +123,15 @@ def main(args):
                 log_p2 = log_p2.to(device)
                 for i in range(batch_size):
                     answer_chunk = torch.Tensor([y1[i], y2[i]])
-                    found_y = torch.logical_and(candidates[i, :, 0] == answer_chunk[0],
-                                                candidates[i, :, 1] == answer_chunk[1]).nonzero()
+                    found_y = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
                     if len(found_y) > 0:
                         # in K-oracle, we are completely correct if one of our candidates is correct
-                        log_p1[i, candidates[i, found_y, 0]] = 1
+                        log_p1[i, candidates[i, found_y[0][0], 0]] = 1
                         log_p1[i] = torch.log_softmax(log_p1[i], dim=0)
-                        log_p2[i, candidates[i, found_y, 1]] = 1
+                        log_p2[i, candidates[i, found_y[0][0], 1]] = 1
                         log_p2[i] = torch.log_softmax(log_p2[i], dim=0)
                     else:
-                        log_p1[i], log_p2[i] = some_log_p1[i], some_log_p2[
-                            i]  # otherwise we are just our normal function
+                        log_p1[i], log_p2[i] = some_log_p1[i], some_log_p2[i]  # otherwise we are just our normal function
             else:
                 log_p1, log_p2 = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
             y1, y2 = y1.to(device), y2.to(device)
