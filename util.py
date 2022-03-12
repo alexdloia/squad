@@ -111,10 +111,20 @@ def get_candidates_full(p1, p2, num_candidates):
                                   dtype=torch.long)
     proposed, _ = torch.sort(proposed, dim=1)
     proposed = torch.unique(proposed, dim=0)
-    proposed = F.pad(proposed, (num_candidates, 2))
+
     scores = p1[proposed[:, 0]] * p2[proposed[:, 1]]
     sorted_scores, _ = torch.sort(scores,descending=True)
-    return proposed[torch.argsort(scores, descending=True)[:num_candidates]], sorted_scores[:num_candidates]
+    cands = proposed[torch.argsort(scores, descending=True)[:num_candidates]]
+    scores = sorted_scores[:num_candidates]
+    l = len(cands)
+    if l < num_candidates:
+        r_cands = torch.zeros((num_candidates, 2))
+        r_cands[:l] = cands
+        r_scores = torch.zeros((num_candidates, 2))
+        r_scores[:l] = scores
+        return r_cands, r_scores
+    else:
+        return cands, scores
 
 
 def get_candidates_simple(p1, p2, num_candidates):
@@ -883,6 +893,15 @@ def compute_f1(a_gold, a_pred):
     f1 = (2 * precision * recall) / (precision + recall)
     return f1
 
+def test():
+    test = "cand_full"
+    if test == "cand_full":
+        p1 = torch.tensor([0.0, 0.1, 0.1, 0.2, 0.2, 0.4, 0.0, 0.0, 0.0, 0.0])
+        p2 = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.4, 0.3, 0.1])
+        num_candidates = 20
+        top_candidates, _ = get_candidates_full(p1, p2, num_candidates)
+        print(top_candidates)
+
 
 if __name__ == "__main__":
-    pass
+    test()
