@@ -125,6 +125,9 @@ def main(args):
                 rat = 0.0
                 for i in range(batch_size):
                     answer_chunk = torch.Tensor([y1[i], y2[i]])
+                    print()
+                    print(answer_chunk, candidates[i])
+
                     found_y = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
                     if len(found_y) > 0:
                         # in K-oracle, we are completely correct if one of our candidates is correct

@@ -79,8 +79,7 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_id
         candidate_scores[i] = top_candidate_scores
         if train:  # only supply correct answer during train time
             answer_chunk = torch.Tensor([y1[i], y2[i]])
-            chunky = torch.logical_and(candidates[i, :, 0] == answer_chunk[0],
-                                       candidates[i, :, 1] == answer_chunk[1]).nonzero()
+            chunky = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
             if len(chunky) > 0:
                 # the correct answer is simply the index where we found the answer
                 chunk_y[i] = chunky[0]
@@ -112,7 +111,7 @@ def get_candidates_full(p1, p2, num_candidates):
                                   dtype=torch.long)
     scores = p1[proposed[:, 0]] * p2[proposed[:, 1]]
     sorted_scores, _ = torch.sort(scores,descending=True)
-    return proposed[torch.argsort(scores, descending=True)[:num_candidates]], sorted_scores[:num_candidates] 
+    return proposed[torch.argsort(scores, descending=True)[:num_candidates]], sorted_scores[:num_candidates]
 
 
 def get_candidates_simple(p1, p2, num_candidates):
