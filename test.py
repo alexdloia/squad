@@ -155,9 +155,10 @@ def main(args):
                     else:
                         log_p1[i], log_p2[i] = some_log_p1[i], some_log_p2[i]  # otherwise we are just our normal function
                         print("-", end="")
-                log.info(rat / batch_size)
-                cnt += batch_size
-                k_oracle_data += correct
+                if args.K_oracle != 0:
+                    log.info(rat / batch_size)
+                    cnt += batch_size
+                    k_oracle_data += correct
             else:
                 log_p1, log_p2 = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
             y1, y2 = y1.to(device), y2.to(device)
