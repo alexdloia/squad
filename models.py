@@ -123,7 +123,7 @@ class SCR(nn.Module):
         drop_prob (float): Dropout probability.
     """
 
-    def __init__(self, word_vectors, hidden_size, num_candidates, drop_prob=0.):
+    def __init__(self, word_vectors, hidden_size, num_candidates, drop_prob=0., only_dcr=False):
         super(SCR, self).__init__()
         self.hidden_size = hidden_size
         self.num_candidates = num_candidates
@@ -152,7 +152,7 @@ class SCR(nn.Module):
 
         self.repr = layers.ChunkRepresentationLayer()
 
-        self.rank = layers.RankerLayer()
+        self.rank = layers.RankerLayer(only_dcr=only_dcr)
 
     def forward(self, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates, candidate_scores):
         # candidates is a (batch_size, num_candidates, 2) tensor
