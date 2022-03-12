@@ -109,8 +109,9 @@ def get_candidates_full(p1, p2, num_candidates):
                                   dtype=torch.long)
     proposed[:, 1] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p2, num_proposed, replacement=True)),
                                   dtype=torch.long)
+    proposed = torch.sort(proposed, dim=1)
     proposed = torch.unique(proposed, dim=0)
-    proposed = torch.pad(proposed, (num_candidates, 2))
+    proposed = F.pad(proposed, (num_candidates, 2))
     scores = p1[proposed[:, 0]] * p2[proposed[:, 1]]
     sorted_scores, _ = torch.sort(scores,descending=True)
     return proposed[torch.argsort(scores, descending=True)[:num_candidates]], sorted_scores[:num_candidates]
