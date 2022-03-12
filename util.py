@@ -120,7 +120,7 @@ def get_candidates_full(p1, p2, num_candidates):
     if l < num_candidates:
         r_cands = torch.zeros((num_candidates, 2))
         r_cands[:l] = cands
-        r_scores = torch.zeros((num_candidates, 2))
+        r_scores = torch.zeros((num_candidates,))
         r_scores[:l] = scores
         return r_cands, r_scores
     else:
