@@ -122,6 +122,7 @@ def main(args):
                 log_p1, log_p2 = torch.zeros(batch_size, p_len), torch.zeros(batch_size, p_len)
                 log_p1 = log_p1.to(device)
                 log_p2 = log_p2.to(device)
+                rat = 0.0
                 for i in range(batch_size):
                     answer_chunk = torch.Tensor([y1[i], y2[i]])
                     found_y = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
@@ -131,8 +132,12 @@ def main(args):
                         log_p1[i] = torch.log_softmax(log_p1[i], dim=0)
                         log_p2[i, candidates[i, found_y[0][0], 1]] = 1
                         log_p2[i] = torch.log_softmax(log_p2[i], dim=0)
+                        rat += 1
+                        print("+", end="")
                     else:
                         log_p1[i], log_p2[i] = some_log_p1[i], some_log_p2[i]  # otherwise we are just our normal function
+                        print("-", end="")
+                log.info(rat / batch_size)
             else:
                 log_p1, log_p2 = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
             y1, y2 = y1.to(device), y2.to(device)
