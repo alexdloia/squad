@@ -15,6 +15,9 @@ import torch.utils.data as data
 import tqdm
 import numpy as np
 import ujson as json
+import pickle
+import matplotlib.pyplot as plt
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 from collections import Counter
 
@@ -26,6 +29,15 @@ NUM_NER_TAGS = 19 + 1
 POS_UNK = 47
 NER_UNK = 18
 
+def plot_K(files, names):
+    for file, name in zip(files, names):
+        ks, em_scores = pickle.load(open(file, "rb"))
+        plt.plot(ks, em_scores, label=name)
+    plt.title("Candidate Model K Oracle Performance")
+    plt.xlabel("K")
+    plt.ylabel("EM (dev)")
+    plt.legend()
+    plt.show()
 
 def get_lens_from_mask(mask):
     return mask.sum(dim=-1)
@@ -137,6 +149,12 @@ def get_candidates_simple(p1, p2, num_candidates):
 
     return candidates
 
+def candidates_enumerate(max_len, p_len):
+    candidates = []
+    for i in range(p_len):
+        for j in range(i, min(i + max_len, p_len)):
+            candidates.append([i, j])
+    return torch.tensor(candidates)
 
 def chunk_discretize(prob_chunks, candidates):
     """Discretizes prob_chunks in a way to equal the format of the util function discretize

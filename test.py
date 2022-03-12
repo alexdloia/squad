@@ -18,6 +18,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data as data
 import util
+import numpy as np
+import pickle
 
 from args import get_test_args
 from collections import OrderedDict
@@ -89,6 +91,10 @@ def main(args):
     pred_dict = {}  # Predictions for TensorBoard
     sub_dict = {}  # Predictions for submission
     eval_file = vars(args)[f'{args.split}_eval_file']
+    k_oracle_file = args.K_pickle
+    k_oracles = np.array([1, 2, 3, 5, 10, 20, 50, 100])
+    k_oracle_data = np.zeros(k_oracles.shape)
+    cnt = 0
     with open(eval_file, 'r') as fh:
         gold_dict = json_load(fh)
     with torch.no_grad(), \
@@ -116,29 +122,42 @@ def main(args):
 
                 log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, c_mask, device)
             elif args.K_oracle != 0:
-                candidates, _, _ = util.generate_candidates(model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs,
-                                                            (y1, y2), args.K_oracle, device, train=False)
+                if args.K_oracle < 0:
+                    candidates, _, _ = util.generate_candidates(model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs,
+                                                                (y1, y2), 100, device, train=False)
+                else:
+                    candidates, _, _ = util.generate_candidates(model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs,
+                                                                (y1, y2), args.K_oracle, device, train=False)
                 some_log_p1, some_log_p2 = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
                 log_p1, log_p2 = torch.zeros(batch_size, p_len), torch.zeros(batch_size, p_len)
                 log_p1 = log_p1.to(device)
                 log_p2 = log_p2.to(device)
                 rat = 0.0
+                if args.K_oracle < 0:
+                    correct = np.zeros(k_oracles.shape)
                 for i in range(batch_size):
                     answer_chunk = torch.Tensor([y1[i], y2[i]])
 
                     found_y = torch.logical_and(candidates[i, :, 0] == answer_chunk[0], candidates[i, :, 1] == answer_chunk[1]).nonzero()
                     if len(found_y) > 0:
                         # in K-oracle, we are completely correct if one of our candidates is correct
-                        log_p1[i, candidates[i, found_y[0][0], 0]] = 1
+                        idx_correct = found_y[0][0]
+                        log_p1[i, candidates[i, idx_correct, 0]] = 1
                         log_p1[i] = torch.log_softmax(log_p1[i], dim=0)
-                        log_p2[i, candidates[i, found_y[0][0], 1]] = 1
+                        log_p2[i, candidates[i, idx_correct, 1]] = 1
                         log_p2[i] = torch.log_softmax(log_p2[i], dim=0)
+                        if args.K_oracle < 0:
+                            for i, k in enumerate(k_oracles):
+                                if idx_correct < k:
+                                    correct[i] += 1
                         rat += 1
                         print("+", end="")
                     else:
                         log_p1[i], log_p2[i] = some_log_p1[i], some_log_p2[i]  # otherwise we are just our normal function
                         print("-", end="")
                 log.info(rat / batch_size)
+                cnt += batch_size
+                k_oracle_data += correct
             else:
                 log_p1, log_p2 = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs)
             y1, y2 = y1.to(device), y2.to(device)
@@ -163,6 +182,8 @@ def main(args):
             pred_dict.update(idx2pred)
             sub_dict.update(uuid2pred)
 
+    log.info("Dumping results to", k_oracle_file)
+    pickle.dump((k_oracles, k_oracle_data / cnt), open(k_oracle_file, "wb"))
     # Log results (except for test set, since it does not come with labels)
     if args.split != 'test':
         results = util.eval_dicts(gold_dict, pred_dict, args.use_squad_v2)

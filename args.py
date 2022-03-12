@@ -174,6 +174,10 @@ def get_test_args():
                         type=int,
                         default=0,
                         help='Toggle K-oracle with given K.')
+    parser.add_argument('--K_pickle',
+                        type=str,
+                        default="./data/dev_k_oracle.pckl",
+                        help='Path output for K-oracle data')
 
     # Require load_model_path for test.py
     args = parser.parse_args()
