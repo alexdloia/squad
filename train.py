@@ -17,7 +17,7 @@ import util
 from args import get_train_args
 from collections import OrderedDict
 from json import dumps
-from models import SCR, SAN
+from models import SCR, SAN, BiDAF
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from ujson import load as json_load
@@ -57,6 +57,10 @@ def main(args):
         cand_model = SAN(word_vectors=word_vectors,
                          hidden_size=args.cand_hidden_size,
                          drop_prob=args.drop_prob, T=args.cand_time_steps).to(device)
+    elif args.model == 'bidaf':
+        model = BiDAF(word_vectors=word_vectors,
+                    hidden_size=args.cand_hidden_size,
+                    drop_prob=args.drop_prob).to(device)
     else:
         model = SAN(word_vectors=word_vectors,
                     hidden_size=args.cand_hidden_size,
