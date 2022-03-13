@@ -178,9 +178,6 @@ def get_test_args():
                         type=str,
                         default="./data/dev_k_oracle.pckl",
                         help='Path output for K-oracle data')
-    parser.add_argument('--q_breakdown',
-                        action="store_true",
-                        help='Whether to write question breakdown stats.')
 
     # Require load_model_path for test.py
     args = parser.parse_args()
