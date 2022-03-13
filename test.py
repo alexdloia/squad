@@ -144,7 +144,7 @@ def main(args):
                     if len(found_y) > 0:
                         # in K-oracle, we are completely correct if one of our candidates is correct
                         idx_correct = found_y[0][0]
-                        if scr_ans == idx_correct:
+                        if scr_ans[i] == idx_correct:
                             print("+", end="")
                         else:
                             print("=", end="")
