@@ -16,9 +16,10 @@ import tqdm
 import numpy as np
 import ujson as json
 import pickle
-import json
+
 import matplotlib.pyplot as plt
-os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 from collections import Counter
 
@@ -29,6 +30,25 @@ NUM_POS_TAGS = 50 + 1  # adjust for pad value
 NUM_NER_TAGS = 19 + 1
 POS_UNK = 47
 NER_UNK = 18
+
+def plot_answer_len_stats(file, name="Model", savepath=None):
+    """
+        file : the path to the question breakdown json file
+        name : name of the model
+        savepath : path to save figure too (show if not saved)
+    """
+    a_len_breakdown = json.load(open(file, "r"))
+    a_lens = list(a_len_breakdown.keys())
+    plt.plot(a_lens, [a_len_breakdown[q]['EM'][0] for q in a_lens], label='EM')
+    plt.plot(a_lens, [a_len_breakdown[a_len]['F1'][0] for a_len in a_lens], label='F1')
+    plt.legend()
+    plt.xlabel("Answer length")
+    plt.ylabel("Evaluation Score")
+    plt.title(f"Performance of {name} vs. Answer Lengths")
+    if savepath:
+        plt.savefig(savepath)
+    else:
+        plt.show()
 
 def plot_question_words(file, name="Model", savepath=None):
     """
@@ -49,6 +69,7 @@ def plot_question_words(file, name="Model", savepath=None):
     else:
         plt.show()
 
+
 def plot_K(files, names, savepath=None):
     """
         files : the paths to the K_oracle pickle files from test.py
@@ -66,6 +87,7 @@ def plot_K(files, names, savepath=None):
         plt.savefig(savepath)
     else:
         plt.show()
+
 
 def get_lens_from_mask(mask):
     return mask.sum(dim=-1)
@@ -180,12 +202,14 @@ def get_candidates_simple(p1, p2, num_candidates):
 
     return candidates
 
+
 def candidates_enumerate(max_len, p_len):
     candidates = []
     for i in range(p_len):
         for j in range(i, min(i + max_len, p_len)):
             candidates.append([i, j])
     return torch.tensor(candidates)
+
 
 def chunk_discretize(prob_chunks, candidates):
     """Discretizes prob_chunks in a way to equal the format of the util function discretize
@@ -862,29 +886,33 @@ def convert_tokens(eval_dict, qa_id, y_start_list, y_end_list, no_answer):
 
 def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
     if not ground_truths:
-        return metric_fn(prediction, '')
+        return metric_fn(prediction, ''), 0
     scores_for_ground_truths = []
     for ground_truth in ground_truths:
         score = metric_fn(prediction, ground_truth)
-        scores_for_ground_truths.append(score)
-    return max(scores_for_ground_truths)
+        scores_for_ground_truths.append((score, len(ground_truth)))
+    return max(scores_for_ground_truths, key=lambda t: t[0])
 
 
-def eval_dicts(gold_dict, pred_dict, no_answer, q_breakdown=False, q_breakdown_path=None):
+def eval_dicts(gold_dict, pred_dict, no_answer, q_breakdown_path=None, a_len_breakdown_path=None):
     avna = f1 = em = total = 0
-    q_breakdown_dict = {"why": {}, "how": {}, "what": {}, "which": {}, "where": {}, "when": {}, "who": {}}
+    if q_breakdown_path:
+        q_breakdown_dict = {"why": {}, "how": {}, "what": {}, "which": {}, "where": {}, "when": {}, "who": {}}
+    if a_len_breakdown_path:
+        a_len_breakdown_dict = {str(i): {"EM": [0, 0], "F1": [0, 0]} for i in list(range(11)) + ["11+"]}
     for key, value in pred_dict.items():
         total += 1
         ground_truths = gold_dict[key]['answers']
         prediction = value
-        this_em = metric_max_over_ground_truths(compute_em, prediction, ground_truths)
-        this_f1 = metric_max_over_ground_truths(compute_f1, prediction, ground_truths)
+        this_em, em_len = metric_max_over_ground_truths(compute_em, prediction, ground_truths)
+        this_f1, f1_len = metric_max_over_ground_truths(compute_f1, prediction, ground_truths)
         em += this_em
         f1 += this_f1
         if no_answer:
             this_avna = compute_avna(prediction, ground_truths)
             avna += this_avna
-        if q_breakdown:
+
+        if q_breakdown_path:
             for q_word, q_eval_dict in q_breakdown_dict.items():
                 if q_word in gold_dict[key]['question'].lower():
                     q_eval_dict["total"] = q_eval_dict.get("total", 0) + 1
@@ -893,7 +921,14 @@ def eval_dicts(gold_dict, pred_dict, no_answer, q_breakdown=False, q_breakdown_p
                     if no_answer:
                         q_eval_dict["AvNA"] = q_eval_dict.get("AvNA", 0) + this_avna
 
-
+        # a len
+        if a_len_breakdown_path:
+            em_key = str(em_len) if em_len <= 10 else "11+"
+            a_len_breakdown_dict[em_key]["EM"][0] += this_em
+            a_len_breakdown_dict[em_key]["EM"][1] += 1
+            f1_key = str(f1_len) if f1_len <= 10 else "11+"
+            a_len_breakdown_dict[f1_key]["F1"][0] += this_f1
+            a_len_breakdown_dict[f1_key]["F1"][1] += 1
 
     eval_dict = {'EM': 100. * em / total,
                  'F1': 100. * f1 / total}
@@ -901,12 +936,18 @@ def eval_dicts(gold_dict, pred_dict, no_answer, q_breakdown=False, q_breakdown_p
     if no_answer:
         eval_dict['AvNA'] = 100. * avna / total
 
-    if q_breakdown:
+    if q_breakdown_path:
         for q_word, q_eval_dict in q_breakdown_dict.items():
             q_eval_dict["EM"] = 100. * q_eval_dict["EM"] / q_eval_dict["total"]
             q_eval_dict["F1"] = 100. * q_eval_dict["F1"] / q_eval_dict["total"]
             q_eval_dict["AvNA"] = 100. * q_eval_dict["AvNA"] / q_eval_dict["total"]
         json.dump(q_breakdown_dict, open(q_breakdown_path, 'w'))
+
+    if a_len_breakdown_path:
+        for a_len, a_len_eval_dict in a_len_breakdown_dict.items():
+            a_len_eval_dict["EM"][0] = 100. * a_len_eval_dict["EM"][0] / max(1, a_len_eval_dict["EM"][1])
+            a_len_eval_dict["F1"][0] = 100. * a_len_eval_dict["F1"][0] / max(1, a_len_eval_dict["F1"][1])
+        json.dump(a_len_breakdown_dict, open(a_len_breakdown_path, 'w'))
 
     return eval_dict
 
