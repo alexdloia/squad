@@ -127,7 +127,9 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_id
         candidates (tensor): (batch_size x num_candidates x 2) tensor of candidates
     """
     y1, y2 = ys
-    batch_size = cw_idxs.size()[0]
+    batch_size, p_len = cw_idxs.size()
+    max_len=15
+    num_candidates = p_len*max_len -(min(p_len, max_len) * (min(p_len, max_len) + 1)) // 2
     candidates = torch.zeros(batch_size, num_candidates, 2, dtype=torch.long)
     candidate_scores = torch.zeros(batch_size, num_candidates).to(device)
     chunk_y = torch.zeros(batch_size).to(device)
@@ -138,7 +140,7 @@ def generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_id
     # cand_loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
     # cand_loss_val = cand_loss.item()
     for i in range(batch_size):
-        top_candidates, top_candidate_scores = get_candidates_full(p1[i], p2[i], num_candidates)
+        top_candidates, top_candidate_scores = candidates_enumerate(max_len, p_len)
         candidates[i] = top_candidates
         candidate_scores[i] = top_candidate_scores
         if train:  # only supply correct answer during train time
