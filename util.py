@@ -16,6 +16,7 @@ import tqdm
 import numpy as np
 import ujson as json
 import pickle
+import json
 import matplotlib.pyplot as plt
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
@@ -29,7 +30,31 @@ NUM_NER_TAGS = 19 + 1
 POS_UNK = 47
 NER_UNK = 18
 
-def plot_K(files, names):
+def plot_question_words(file, name="Model", savepath=None):
+    """
+        file : the path to the question breakdown json file
+        name : name of the model
+        savepath : path to save figure too (show if not saved)
+    """
+    q_breakdown = json.load(open(file, "r"))
+    qs = list(q_breakdown.keys())
+    plt.plot(qs, [q_breakdown[q]['EM'] for q in qs], label='EM')
+    plt.plot(qs, [q_breakdown[q]['F1'] for q in qs], label='F1')
+    plt.legend()
+    plt.xlabel("Question type")
+    plt.ylabel("Evaluation Score")
+    plt.title(f"Performance of {name} on Question Types")
+    if savepath:
+        plt.savefig(savepath)
+    else:
+        plt.show()
+
+def plot_K(files, names, savepath=None):
+    """
+        files : the paths to the K_oracle pickle files from test.py
+        name : names of the models provided in files
+        savepath : path to save figure too (show if not saved)
+    """
     for file, name in zip(files, names):
         ks, em_scores = pickle.load(open(file, "rb"))
         plt.plot(ks, em_scores, label=name)
@@ -37,7 +62,10 @@ def plot_K(files, names):
     plt.xlabel("K")
     plt.ylabel("EM (dev)")
     plt.legend()
-    plt.show()
+    if savepath:
+        plt.savefig(savepath)
+    else:
+        plt.show()
 
 def get_lens_from_mask(mask):
     return mask.sum(dim=-1)
