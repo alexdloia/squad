@@ -181,6 +181,10 @@ def get_test_args():
     parser.add_argument('--q_breakdown',
                         action="store_true",
                         help='Whether to write question breakdown stats.')
+    parser.add_argument('--disposition',
+                        type=str,
+                        default="./data/dev_disposition.pckl",
+                        help='Path to send errors in source data')
 
     # Require load_model_path for test.py
     args = parser.parse_args()
