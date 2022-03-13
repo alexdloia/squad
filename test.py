@@ -220,8 +220,8 @@ def main(args):
         log.info("Dumping results to", k_oracle_file)
         pickle.dump((k_oracles, k_oracle_data / cnt), open(k_oracle_file, "wb"))
     if args.disposition:
-        log.info("Dumping dispositions to", args.disposition)
-        pickle.dump((cand_errors, dcr_errors), open(args.disposition, "wb"))
+        log.info("Dumping dispositions to", args.disp_output)
+        pickle.dump((cand_errors, dcr_errors), open(args.disp_output, "wb"))
 
     # Log results (except for test set, since it does not come with labels)
     if args.split != 'test':

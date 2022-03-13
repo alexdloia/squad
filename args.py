@@ -182,6 +182,10 @@ def get_test_args():
                         action="store_true",
                         help='Whether to write question breakdown stats.')
     parser.add_argument('--disposition',
+                        type=bool,
+                        default=False,
+                        help='Whether to compute disposition')
+    parser.add_argument('--disp_output',
                         type=str,
                         default="./data/dev_disposition.pckl",
                         help='Path to send errors in source data')
