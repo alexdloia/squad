@@ -31,6 +31,24 @@ NUM_NER_TAGS = 19 + 1
 POS_UNK = 47
 NER_UNK = 18
 
+def plot_answer_len_stats(file, name="Model", savepath=None):
+    """
+        file : the path to the question breakdown json file
+        name : name of the model
+        savepath : path to save figure too (show if not saved)
+    """
+    a_len_breakdown = json.load(open(file, "r"))
+    a_lens = list(a_len_breakdown.keys())
+    plt.plot(a_lens, [a_len_breakdown[q]['EM'][0] for q in a_lens], label='EM')
+    plt.plot(a_lens, [a_len_breakdown[a_len]['F1'][0] for a_len in a_lens], label='F1')
+    plt.legend()
+    plt.xlabel("Answer length")
+    plt.ylabel("Evaluation Score")
+    plt.title(f"Performance of {name} vs. Answer Lengths")
+    if savepath:
+        plt.savefig(savepath)
+    else:
+        plt.show()
 
 def plot_question_words(file, name="Model", savepath=None):
     """
