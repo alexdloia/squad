@@ -94,6 +94,9 @@ def main(args):
     k_oracle_file = args.K_pickle
     k_oracles = np.array([1, 2, 3, 5, 10, 20, 50, 100])
     k_oracle_data = np.zeros(k_oracles.shape)
+    if args.disposition:
+        cand_errors = 0
+        dcr_errors = 0
     cnt = 0
     with open(eval_file, 'r') as fh:
         gold_dict = json_load(fh)
@@ -120,6 +123,33 @@ def main(args):
                 logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates, candidate_scores)
                 c_len = cw_idxs.size()[1]
                 c_mask = torch.zeros_like(cw_idxs) != cw_idxs
+
+                log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, c_mask, device)
+            elif args.disposition:
+                candidates, candidate_scores, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs,
+                                                                           ner_idxs, bem_idxs,
+                                                                           (y1, y2), util.NUM_CANDIDATES,
+                                                                           device, train=False)
+
+                logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates, candidate_scores)
+                scr_ans = torch.argmax(logprob_chunks, dim=1)
+                c_len = cw_idxs.size()[1]
+                c_mask = torch.zeros_like(cw_idxs) != cw_idxs
+
+                for i in range(batch_size):
+                    answer_chunk = torch.Tensor([y1[i], y2[i]])
+
+                    found_y = torch.logical_and(candidates[i, :, 0] == answer_chunk[0],
+                                                candidates[i, :, 1] == answer_chunk[1]).nonzero()
+                    if len(found_y) > 0:
+                        # in K-oracle, we are completely correct if one of our candidates is correct
+                        idx_correct = found_y[0][0]
+                        if scr_ans == idx_correct:
+                            print("+", end="")
+                        else:
+                            print("=", end="")
+                    else:
+                        print("-", end="")
 
                 log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, c_mask, device)
             elif args.K_oracle != 0:
@@ -186,8 +216,13 @@ def main(args):
             pred_dict.update(idx2pred)
             sub_dict.update(uuid2pred)
 
-    log.info("Dumping results to", k_oracle_file)
-    pickle.dump((k_oracles, k_oracle_data / cnt), open(k_oracle_file, "wb"))
+    if args.K_oracle != 0:
+        log.info("Dumping results to", k_oracle_file)
+        pickle.dump((k_oracles, k_oracle_data / cnt), open(k_oracle_file, "wb"))
+    if args.disposition:
+        log.info("Dumping dispositions to", args.disposition)
+        pickle.dump((cand_errors, dcr_errors), open(args.disposition, "wb"))
+
     # Log results (except for test set, since it does not come with labels)
     if args.split != 'test':
         results = util.eval_dicts(gold_dict, pred_dict, args.use_squad_v2,
