@@ -17,7 +17,7 @@ import util
 from args import get_train_args
 from collections import OrderedDict
 from json import dumps
-from models import SCR, SAN
+from models import SCR, SAN, BiDAF
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from ujson import load as json_load
@@ -43,7 +43,6 @@ def main(args):
     # Get embeddings
     log.info('Loading embeddings...')
     word_vectors = util.torch_from_json(args.word_emb_file)
-    print(word_vectors[0:100])
 
     # Get model
     log.info('Building model...')
@@ -53,10 +52,15 @@ def main(args):
         model = SCR(word_vectors=word_vectors,
                     hidden_size=args.hidden_size,
                     num_candidates=NUM_CANDIDATES,
-                    drop_prob=args.drop_prob).to(device)
+                    drop_prob=args.drop_prob,
+                    only_dcr=args.only_dcr).to(device)
         cand_model = SAN(word_vectors=word_vectors,
                          hidden_size=args.cand_hidden_size,
                          drop_prob=args.drop_prob, T=args.cand_time_steps).to(device)
+    elif args.model == 'bidaf':
+        model = BiDAF(word_vectors=word_vectors,
+                    hidden_size=args.cand_hidden_size,
+                    drop_prob=args.drop_prob).to(device)
     else:
         model = SAN(word_vectors=word_vectors,
                     hidden_size=args.cand_hidden_size,
@@ -88,10 +92,12 @@ def main(args):
 
     # Get optimizer and scheduler
     optimizer = optim.Adadelta(model.parameters(), args.lr, weight_decay=args.l2_wd)
+    lr_func = lambda epochs: 1.
     if args.lr_sched == 'san':
-        scheduler = sched.LambdaLR(optimizer, lambda epochs: 0.5 ** (epochs // 10))  # SAN LR
-    else:
-        scheduler = sched.LambdaLR(optimizer, lambda epochs: max(0.5 ** 5, 0.5 ** (epochs // 5)))  # custom LR
+        lr_func = lambda epochs: 0.5 ** (epochs // 10)  # SAN LR
+    elif args.lr_sched == 'custom':
+        lr_func = lambda epochs: max(0.5 ** 5, 0.5 ** (epochs // 5))  # custom LR
+    scheduler = sched.LambdaLR(optimizer, lr_func)
 
     # Get data loader
     log.info('Building dataset...')
@@ -242,9 +248,9 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2, cand_
             # Forward
             if chunk:
                 candidates, candidate_scores, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs,
-                                                                                 ner_idxs,
-                                                                                 bem_idxs, (y1, y2), NUM_CANDIDATES,
-                                                                                 device, train=False)
+                                                                           ner_idxs,
+                                                                           bem_idxs, (y1, y2), NUM_CANDIDATES,
+                                                                           device, train=False)
                 logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates, candidate_scores)
                 candidate_scores.to(device)
                 c_len = cw_idxs.size()[1]

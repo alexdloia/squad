@@ -15,20 +15,65 @@ import torch.utils.data as data
 import tqdm
 import numpy as np
 import ujson as json
+import pickle
+
+import matplotlib.pyplot as plt
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 from collections import Counter
 
 import time
 
-NUM_CANDIDATES = 20
-NUM_POS_TAGS = 50 + 1 # adjust for pad value
+NUM_CANDIDATES = 3
+NUM_POS_TAGS = 50 + 1  # adjust for pad value
 NUM_NER_TAGS = 19 + 1
 POS_UNK = 47
 NER_UNK = 18
 
 
+def plot_question_words(file, name="Model", savepath=None):
+    """
+        file : the path to the question breakdown json file
+        name : name of the model
+        savepath : path to save figure too (show if not saved)
+    """
+    q_breakdown = json.load(open(file, "r"))
+    qs = list(q_breakdown.keys())
+    plt.plot(qs, [q_breakdown[q]['EM'] for q in qs], label='EM')
+    plt.plot(qs, [q_breakdown[q]['F1'] for q in qs], label='F1')
+    plt.legend()
+    plt.xlabel("Question type")
+    plt.ylabel("Evaluation Score")
+    plt.title(f"Performance of {name} on Question Types")
+    if savepath:
+        plt.savefig(savepath)
+    else:
+        plt.show()
+
+
+def plot_K(files, names, savepath=None):
+    """
+        files : the paths to the K_oracle pickle files from test.py
+        name : names of the models provided in files
+        savepath : path to save figure too (show if not saved)
+    """
+    for file, name in zip(files, names):
+        ks, em_scores = pickle.load(open(file, "rb"))
+        plt.plot(ks, em_scores, label=name)
+    plt.title("Candidate Model K Oracle Performance")
+    plt.xlabel("K")
+    plt.ylabel("EM (dev)")
+    plt.legend()
+    if savepath:
+        plt.savefig(savepath)
+    else:
+        plt.show()
+
+
 def get_lens_from_mask(mask):
     return mask.sum(dim=-1)
+
 
 def convert_probs(logprob_chunks, candidates, c_len, c_mask, device):
     """
@@ -49,7 +94,8 @@ def convert_probs(logprob_chunks, candidates, c_len, c_mask, device):
     return log_p1, log_p2
 
 
-def generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, ys, num_candidates, device, train=True):
+def generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, ys, num_candidates, device,
+                        train=True):
     """Given a candidate model, generate the candidates list for input into the SCr model along with a chunk_y which
     represents the solution index.
 
@@ -110,9 +156,22 @@ def get_candidates_full(p1, p2, num_candidates):
                                   dtype=torch.long)
     proposed[:, 1] = torch.tensor(list(torch.utils.data.WeightedRandomSampler(p2, num_proposed, replacement=True)),
                                   dtype=torch.long)
+    proposed, _ = torch.sort(proposed, dim=1)
+    proposed = torch.unique(proposed, dim=0)
+
     scores = p1[proposed[:, 0]] * p2[proposed[:, 1]]
-    sorted_scores, _ = torch.sort(scores,descending=True)
-    return proposed[torch.argsort(scores, descending=True)[:num_candidates]], sorted_scores[:num_candidates] 
+    sorted_scores, _ = torch.sort(scores, descending=True)
+    cands = proposed[torch.argsort(scores, descending=True)[:num_candidates]]
+    scores = sorted_scores[:num_candidates]
+    l = len(cands)
+    if l < num_candidates:
+        r_cands = torch.zeros((num_candidates, 2))
+        r_cands[:l] = cands
+        r_scores = torch.zeros((num_candidates,))
+        r_scores[:l] = scores
+        return r_cands, r_scores
+    else:
+        return cands, scores
 
 
 def get_candidates_simple(p1, p2, num_candidates):
@@ -124,6 +183,14 @@ def get_candidates_simple(p1, p2, num_candidates):
     candidates[:, :], _ = torch.sort(candidates, dim=1)
 
     return candidates
+
+
+def candidates_enumerate(max_len, p_len):
+    candidates = []
+    for i in range(p_len):
+        for j in range(i, min(i + max_len, p_len)):
+            candidates.append([i, j])
+    return torch.tensor(candidates)
 
 
 def chunk_discretize(prob_chunks, candidates):
@@ -801,30 +868,62 @@ def convert_tokens(eval_dict, qa_id, y_start_list, y_end_list, no_answer):
 
 def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
     if not ground_truths:
-        return metric_fn(prediction, '')
+        return metric_fn(prediction, ''), 0
     scores_for_ground_truths = []
     for ground_truth in ground_truths:
         score = metric_fn(prediction, ground_truth)
-        scores_for_ground_truths.append(score)
-    return max(scores_for_ground_truths)
+        scores_for_ground_truths.append((score, len(ground_truth)))
+    return max(scores_for_ground_truths, key=lambda t: t[0])
 
 
-def eval_dicts(gold_dict, pred_dict, no_answer):
+def eval_dicts(gold_dict, pred_dict, no_answer, q_breakdown_path, a_len_breakdown_path):
     avna = f1 = em = total = 0
+    q_breakdown_dict = {"why": {}, "how": {}, "what": {}, "which": {}, "where": {}, "when": {}, "who": {}}
+    a_len_breakdown_dict = {str(i): {"EM": [0, 0], "F1": [0, 0]} for i in list(range(11)) + ["11+"]}
     for key, value in pred_dict.items():
         total += 1
         ground_truths = gold_dict[key]['answers']
         prediction = value
-        em += metric_max_over_ground_truths(compute_em, prediction, ground_truths)
-        f1 += metric_max_over_ground_truths(compute_f1, prediction, ground_truths)
+        this_em, em_len = metric_max_over_ground_truths(compute_em, prediction, ground_truths)
+        this_f1, f1_len = metric_max_over_ground_truths(compute_f1, prediction, ground_truths)
+        em += this_em
+        f1 += this_f1
         if no_answer:
-            avna += compute_avna(prediction, ground_truths)
+            this_avna = compute_avna(prediction, ground_truths)
+            avna += this_avna
+
+        for q_word, q_eval_dict in q_breakdown_dict.items():
+            if q_word in gold_dict[key]['question'].lower():
+                q_eval_dict["total"] = q_eval_dict.get("total", 0) + 1
+                q_eval_dict["EM"] = q_eval_dict.get("EM", 0) + this_em
+                q_eval_dict["F1"] = q_eval_dict.get("F1", 0) + this_f1
+                if no_answer:
+                    q_eval_dict["AvNA"] = q_eval_dict.get("AvNA", 0) + this_avna
+
+        # a len
+        em_key = str(em_len) if em_len <= 10 else "11+"
+        a_len_breakdown_dict[em_key]["EM"][0] += this_em
+        a_len_breakdown_dict[em_key]["EM"][1] += 1
+        f1_key = str(f1_len) if f1_len <= 10 else "11+"
+        a_len_breakdown_dict[f1_key]["F1"][0] += this_f1
+        a_len_breakdown_dict[f1_key]["F1"][1] += 1
 
     eval_dict = {'EM': 100. * em / total,
                  'F1': 100. * f1 / total}
 
     if no_answer:
         eval_dict['AvNA'] = 100. * avna / total
+
+    for q_word, q_eval_dict in q_breakdown_dict.items():
+        q_eval_dict["EM"] = 100. * q_eval_dict["EM"] / q_eval_dict["total"]
+        q_eval_dict["F1"] = 100. * q_eval_dict["F1"] / q_eval_dict["total"]
+        q_eval_dict["AvNA"] = 100. * q_eval_dict["AvNA"] / q_eval_dict["total"]
+    json.dump(q_breakdown_dict, open(q_breakdown_path, 'w'))
+
+    for a_len, a_len_eval_dict in a_len_breakdown_dict.items():
+        a_len_eval_dict["EM"][0] = 100. * a_len_eval_dict["EM"][0] / max(1, a_len_eval_dict["EM"][1])
+        a_len_eval_dict["F1"][0] = 100. * a_len_eval_dict["F1"][0] / max(1, a_len_eval_dict["F1"][1])
+    json.dump(a_len_breakdown_dict, open(a_len_breakdown_path, 'w'))
 
     return eval_dict
 
@@ -882,5 +981,15 @@ def compute_f1(a_gold, a_pred):
     return f1
 
 
+def test():
+    test = "cand_full"
+    if test == "cand_full":
+        p1 = torch.tensor([0.0, 0.1, 0.1, 0.2, 0.2, 0.4, 0.0, 0.0, 0.0, 0.0])
+        p2 = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.4, 0.3, 0.1])
+        num_candidates = 20
+        top_candidates, _ = get_candidates_full(p1, p2, num_candidates)
+        print(top_candidates)
+
+
 if __name__ == "__main__":
-    pass
+    test()

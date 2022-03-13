@@ -100,10 +100,11 @@ def get_train_args():
     parser.add_argument('--lr_sched',
                         type=str,
                         default="san",
+                        choices=("san", "custom", "none"),
                         help='Learning rate lambda function.')
     parser.add_argument('--lr',
                         type=float,
-                        default=0.002,
+                        default=0.05,
                         help='Learning rate.')
     parser.add_argument('--l2_wd',
                         type=float,
@@ -173,6 +174,10 @@ def get_test_args():
                         type=int,
                         default=0,
                         help='Toggle K-oracle with given K.')
+    parser.add_argument('--K_pickle',
+                        type=str,
+                        default="./data/dev_k_oracle.pckl",
+                        help='Path output for K-oracle data')
 
     # Require load_model_path for test.py
     args = parser.parse_args()
@@ -279,3 +284,6 @@ def add_train_test_args(parser):
                         type=str,
                         default="DotProduct",
                         help='Attention to use for SAN')
+    parser.add_argument('--only_dcr',
+                        action='store_true',
+                        help='Whether to only use DCR in Ranker layer.')
