@@ -190,8 +190,8 @@ def main(args):
     pickle.dump((k_oracles, k_oracle_data / cnt), open(k_oracle_file, "wb"))
     # Log results (except for test set, since it does not come with labels)
     if args.split != 'test':
-        results = util.eval_dicts(gold_dict, pred_dict, args.use_squad_v2, args.q_breakdown,
-                                  args.save_dir + '/q_breakdown.json')
+        results = util.eval_dicts(gold_dict, pred_dict, args.use_squad_v2,
+                                  args.save_dir + '/q_breakdown.json', args.save_dir + '/a_len_breakdown.json')
         results_list = [('NLL', nll_meter.avg),
                         ('F1', results['F1']),
                         ('EM', results['EM'])]
