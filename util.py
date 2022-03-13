@@ -894,10 +894,12 @@ def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
     return max(scores_for_ground_truths, key=lambda t: t[0])
 
 
-def eval_dicts(gold_dict, pred_dict, no_answer, q_breakdown_path, a_len_breakdown_path):
+def eval_dicts(gold_dict, pred_dict, no_answer, q_breakdown_path=None, a_len_breakdown_path=None):
     avna = f1 = em = total = 0
-    q_breakdown_dict = {"why": {}, "how": {}, "what": {}, "which": {}, "where": {}, "when": {}, "who": {}}
-    a_len_breakdown_dict = {str(i): {"EM": [0, 0], "F1": [0, 0]} for i in list(range(11)) + ["11+"]}
+    if q_breakdown_path:
+        q_breakdown_dict = {"why": {}, "how": {}, "what": {}, "which": {}, "where": {}, "when": {}, "who": {}}
+    if a_len_breakdown_path:
+        a_len_breakdown_dict = {str(i): {"EM": [0, 0], "F1": [0, 0]} for i in list(range(11)) + ["11+"]}
     for key, value in pred_dict.items():
         total += 1
         ground_truths = gold_dict[key]['answers']
@@ -910,21 +912,23 @@ def eval_dicts(gold_dict, pred_dict, no_answer, q_breakdown_path, a_len_breakdow
             this_avna = compute_avna(prediction, ground_truths)
             avna += this_avna
 
-        for q_word, q_eval_dict in q_breakdown_dict.items():
-            if q_word in gold_dict[key]['question'].lower():
-                q_eval_dict["total"] = q_eval_dict.get("total", 0) + 1
-                q_eval_dict["EM"] = q_eval_dict.get("EM", 0) + this_em
-                q_eval_dict["F1"] = q_eval_dict.get("F1", 0) + this_f1
-                if no_answer:
-                    q_eval_dict["AvNA"] = q_eval_dict.get("AvNA", 0) + this_avna
+        if q_breakdown_path:
+            for q_word, q_eval_dict in q_breakdown_dict.items():
+                if q_word in gold_dict[key]['question'].lower():
+                    q_eval_dict["total"] = q_eval_dict.get("total", 0) + 1
+                    q_eval_dict["EM"] = q_eval_dict.get("EM", 0) + this_em
+                    q_eval_dict["F1"] = q_eval_dict.get("F1", 0) + this_f1
+                    if no_answer:
+                        q_eval_dict["AvNA"] = q_eval_dict.get("AvNA", 0) + this_avna
 
         # a len
-        em_key = str(em_len) if em_len <= 10 else "11+"
-        a_len_breakdown_dict[em_key]["EM"][0] += this_em
-        a_len_breakdown_dict[em_key]["EM"][1] += 1
-        f1_key = str(f1_len) if f1_len <= 10 else "11+"
-        a_len_breakdown_dict[f1_key]["F1"][0] += this_f1
-        a_len_breakdown_dict[f1_key]["F1"][1] += 1
+        if a_len_breakdown_path:
+            em_key = str(em_len) if em_len <= 10 else "11+"
+            a_len_breakdown_dict[em_key]["EM"][0] += this_em
+            a_len_breakdown_dict[em_key]["EM"][1] += 1
+            f1_key = str(f1_len) if f1_len <= 10 else "11+"
+            a_len_breakdown_dict[f1_key]["F1"][0] += this_f1
+            a_len_breakdown_dict[f1_key]["F1"][1] += 1
 
     eval_dict = {'EM': 100. * em / total,
                  'F1': 100. * f1 / total}
@@ -932,16 +936,18 @@ def eval_dicts(gold_dict, pred_dict, no_answer, q_breakdown_path, a_len_breakdow
     if no_answer:
         eval_dict['AvNA'] = 100. * avna / total
 
-    for q_word, q_eval_dict in q_breakdown_dict.items():
-        q_eval_dict["EM"] = 100. * q_eval_dict["EM"] / q_eval_dict["total"]
-        q_eval_dict["F1"] = 100. * q_eval_dict["F1"] / q_eval_dict["total"]
-        q_eval_dict["AvNA"] = 100. * q_eval_dict["AvNA"] / q_eval_dict["total"]
-    json.dump(q_breakdown_dict, open(q_breakdown_path, 'w'))
+    if q_breakdown_path:
+        for q_word, q_eval_dict in q_breakdown_dict.items():
+            q_eval_dict["EM"] = 100. * q_eval_dict["EM"] / q_eval_dict["total"]
+            q_eval_dict["F1"] = 100. * q_eval_dict["F1"] / q_eval_dict["total"]
+            q_eval_dict["AvNA"] = 100. * q_eval_dict["AvNA"] / q_eval_dict["total"]
+        json.dump(q_breakdown_dict, open(q_breakdown_path, 'w'))
 
-    for a_len, a_len_eval_dict in a_len_breakdown_dict.items():
-        a_len_eval_dict["EM"][0] = 100. * a_len_eval_dict["EM"][0] / max(1, a_len_eval_dict["EM"][1])
-        a_len_eval_dict["F1"][0] = 100. * a_len_eval_dict["F1"][0] / max(1, a_len_eval_dict["F1"][1])
-    json.dump(a_len_breakdown_dict, open(a_len_breakdown_path, 'w'))
+    if a_len_breakdown_path:
+        for a_len, a_len_eval_dict in a_len_breakdown_dict.items():
+            a_len_eval_dict["EM"][0] = 100. * a_len_eval_dict["EM"][0] / max(1, a_len_eval_dict["EM"][1])
+            a_len_eval_dict["F1"][0] = 100. * a_len_eval_dict["F1"][0] / max(1, a_len_eval_dict["F1"][1])
+        json.dump(a_len_breakdown_dict, open(a_len_breakdown_path, 'w'))
 
     return eval_dict
 
