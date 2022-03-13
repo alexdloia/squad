@@ -879,7 +879,7 @@ def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
 def eval_dicts(gold_dict, pred_dict, no_answer, q_breakdown_path, a_len_breakdown_path):
     avna = f1 = em = total = 0
     q_breakdown_dict = {"why": {}, "how": {}, "what": {}, "which": {}, "where": {}, "when": {}, "who": {}}
-    a_len_breakdown_dict = {str(i): {"EM": [0, 0], "F1": [0, 0], "AvNA": [0, 0]} for i in list(range(11)) + ["11+"]}
+    a_len_breakdown_dict = {str(i): {"EM": [0, 0], "F1": [0, 0]} for i in list(range(11)) + ["11+"]}
     for key, value in pred_dict.items():
         total += 1
         ground_truths = gold_dict[key]['answers']
@@ -889,7 +889,7 @@ def eval_dicts(gold_dict, pred_dict, no_answer, q_breakdown_path, a_len_breakdow
         em += this_em
         f1 += this_f1
         if no_answer:
-            this_avna, avna_len = compute_avna(prediction, ground_truths)
+            this_avna = compute_avna(prediction, ground_truths)
             avna += this_avna
 
         for q_word, q_eval_dict in q_breakdown_dict.items():
@@ -908,11 +908,6 @@ def eval_dicts(gold_dict, pred_dict, no_answer, q_breakdown_path, a_len_breakdow
         a_len_breakdown_dict[f1_key]["F1"][0] += this_f1
         a_len_breakdown_dict[f1_key]["F1"][1] += 1
 
-        if no_answer:
-            avna_key = str(avna_len) if avna_len <= 10 else "11+"
-            a_len_breakdown_dict[avna_key]["AvNA"][0] += this_avna
-            a_len_breakdown_dict[avna_key]["AvNA"][1] += 1
-
     eval_dict = {'EM': 100. * em / total,
                  'F1': 100. * f1 / total}
 
@@ -928,7 +923,6 @@ def eval_dicts(gold_dict, pred_dict, no_answer, q_breakdown_path, a_len_breakdow
     for a_len, a_len_eval_dict in a_len_breakdown_dict.items():
         a_len_eval_dict["EM"][0] = 100. * a_len_eval_dict["EM"][0] / max(1, a_len_eval_dict["EM"][1])
         a_len_eval_dict["F1"][0] = 100. * a_len_eval_dict["F1"][0] / max(1, a_len_eval_dict["F1"][1])
-        a_len_eval_dict["AvNA"][0] = 100. * a_len_eval_dict["AvNA"][0] / max(1, a_len_eval_dict["AvNA"][1])
     json.dump(a_len_breakdown_dict, open(a_len_breakdown_path, 'w'))
 
     return eval_dict
