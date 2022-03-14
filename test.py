@@ -136,8 +136,10 @@ def main(args):
                         if scr_ans[i] == idx_correct:
                             print("+", end="")
                         else:
+                            dcr_errors += 1
                             print("=", end="")
                     else:
+                        cand_errors += 1
                         print("-", end="")
 
                 log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, c_mask, device)
