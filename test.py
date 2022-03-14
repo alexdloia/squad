@@ -114,18 +114,7 @@ def main(args):
 
             # Forward
             y1, y2 = y1.to(device), y2.to(device)
-            if args.model == "scr":
-                candidates, candidate_scores, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs,
-                                                                           ner_idxs, bem_idxs,
-                                                                           (y1, y2), util.NUM_CANDIDATES,
-                                                                           device, train=False)
-
-                logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates, candidate_scores)
-                c_len = cw_idxs.size()[1]
-                c_mask = torch.zeros_like(cw_idxs) != cw_idxs
-
-                log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, c_mask, device)
-            elif args.disposition:
+            if args.disposition:
                 candidates, candidate_scores, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs,
                                                                            ner_idxs, bem_idxs,
                                                                            (y1, y2), util.NUM_CANDIDATES,
@@ -150,6 +139,17 @@ def main(args):
                             print("=", end="")
                     else:
                         print("-", end="")
+
+                log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, c_mask, device)
+            elif args.model == "scr":
+                candidates, candidate_scores, _ = util.generate_candidates(cand_model, cw_idxs, qw_idxs, pos_idxs,
+                                                                           ner_idxs, bem_idxs,
+                                                                           (y1, y2), util.NUM_CANDIDATES,
+                                                                           device, train=False)
+
+                logprob_chunks = model(cw_idxs, qw_idxs, pos_idxs, ner_idxs, bem_idxs, candidates, candidate_scores)
+                c_len = cw_idxs.size()[1]
+                c_mask = torch.zeros_like(cw_idxs) != cw_idxs
 
                 log_p1, log_p2 = util.convert_probs(logprob_chunks, candidates, c_len, c_mask, device)
             elif args.K_oracle != 0:
